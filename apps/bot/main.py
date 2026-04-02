@@ -81,19 +81,20 @@ def debug_env():
 def cron_monthly_report():
     """
     Dipanggil cron-job.org tiap tanggal 1 jam 07:00 WIB (00:00 UTC).
-    Kirim laporan bulan lalu ke semua workspace yang terhubung Telegram.
+    Kirim laporan bulan berjalan ke semua workspace yang terhubung Telegram.
+    Karena dikirim di akhir/awal bulan, data yang diambil adalah bulan saat cron berjalan.
     """
     # Validasi secret
     secret = request.headers.get("x-cron-secret", "")
     if secret != os.environ.get("CRON_SECRET", ""):
         return jsonify({"error": "unauthorized"}), 401
 
-    # Hitung bulan lalu
-    now        = datetime.now(timezone.utc)
-    first_day  = now.replace(day=1)
-    last_month = first_day - timedelta(days=1)
-    month      = last_month.month
-    year       = last_month.year
+    # Gunakan bulan berjalan (bukan bulan lalu)
+    # Cron jalan tiap tgl 1, tapi laporan tetap ambil bulan ini
+    # sehingga saat testing kapan pun, data bulan sekarang selalu keambil
+    now   = datetime.now(timezone(timedelta(hours=7)))  # WIB
+    month = now.month
+    year  = now.year
 
     links   = get_all_telegram_links()
     results = []

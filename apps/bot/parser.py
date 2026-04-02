@@ -1,16 +1,42 @@
 # apps/bot/parser.py
 import os
 import json
+import time
 import logging
+import threading
 import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("gemini-2.0-flash")
 
 # Cache sederhana biar tidak boros quota Gemini
 _cache: dict[str, dict] = {}
+
+# ── Rate limiter: max 14 request/menit (sedikit di bawah limit 15) ──
+_lock = threading.Lock()
+_request_times = []
+
+def _wait_for_rate_limit():
+    """Tunggu kalau sudah 14 request dalam 60 detik terakhir."""
+    with _lock:
+        now = time.time()
+        # Hapus request yang sudah lebih dari 60 detik
+        while _request_times and _request_times[0] < now - 60:
+            _request_times.pop(0)
+
+        # Kalau sudah 14 request, tunggu sampai slot kosong
+        if len(_request_times) >= 14:
+            wait_time = 60 - (now - _request_times[0]) + 0.5
+            logger.info(f"Rate limit: menunggu {wait_time:.1f} detik...")
+            time.sleep(wait_time)
+            # Bersihkan lagi setelah tunggu
+            now = time.time()
+            while _request_times and _request_times[0] < now - 60:
+                _request_times.pop(0)
+
+        _request_times.append(time.time())
 
 def parse_transaction(text: str, categories: list) -> dict | None:
     """
@@ -55,6 +81,9 @@ Jika teks tidak mengandung transaksi sama sekali, kembalikan:
 {{"error": "bukan transaksi"}}"""
 
     try:
+        # Tunggu kalau rate limit tercapai
+        _wait_for_rate_limit()
+
         response = model.generate_content(prompt)
         raw = response.text.strip()
 

@@ -169,12 +169,26 @@ def get_monthly_report_data(workspace_id: str, month: int, year: int) -> dict:
     # Tagihan belum lunas
     unpaid_bills = get_unpaid_bills(workspace_id)
 
+    # Tagihan sudah lunas bulan tsb
+    res_paid = (
+        db.table("bills")
+        .select("id, title, amount, due_date, paid_at")
+        .eq("workspace_id", workspace_id)
+        .eq("status", "paid")
+        .gte("paid_at", first + "T00:00:00")
+        .lte("paid_at", last + "T23:59:59")
+        .order("paid_at")
+        .execute()
+    )
+    paid_bills = res_paid.data or []
+
     return {
         "income":        income,
         "expense":       expense,
         "transactions":  transactions,
         "category_data": category_data,
         "unpaid_bills":  unpaid_bills,
+        "paid_bills":    paid_bills,
     }
 
 def mark_bill_paid(bill_id: str):

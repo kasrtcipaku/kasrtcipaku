@@ -118,6 +118,7 @@ def cron_monthly_report():
                     transactions   = data["transactions"],
                     category_data  = data["category_data"],
                     unpaid_bills   = data["unpaid_bills"],
+                    paid_bills     = data["paid_bills"],
                 )
             )
             results.append({"chat_id": chat_id, "workspace": ws_name, "status": "ok"})

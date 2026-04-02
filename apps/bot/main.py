@@ -71,6 +71,12 @@ def webhook():
 def health():
     return jsonify({"status": "alive", "bot": "KasRT"}), 200
 
+@flask_app.get("/debug/env")
+def debug_env():
+    return jsonify({
+        "CRON_SECRET": os.environ.get("CRON_SECRET", "NOT SET"),
+    }), 200
+
 @flask_app.get("/cron/monthly-report")
 def cron_monthly_report():
     """

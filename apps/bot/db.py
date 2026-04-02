@@ -107,6 +107,76 @@ def get_unpaid_bills(workspace_id: str) -> list:
     )
     return res.data or []
 
+def get_all_telegram_links() -> list:
+    """Ambil semua workspace yang punya Telegram link."""
+    db = get_db()
+    res = (
+        db.table("telegram_links")
+        .select("telegram_chat_id, workspace_id, user_id, workspaces(id, name)")
+        .execute()
+    )
+    return res.data or []
+
+def get_monthly_report_data(workspace_id: str, month: int, year: int) -> dict:
+    """
+    Ambil data lengkap untuk laporan bulanan.
+    Return: {income, expense, transactions, category_data, unpaid_bills}
+    """
+    import calendar
+    db    = get_db()
+    first = f"{year}-{month:02d}-01"
+    last  = f"{year}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
+
+    # Transaksi bulan tsb
+    res = (
+        db.table("transactions")
+        .select("id, type, amount, date, description, categories(name)")
+        .eq("workspace_id", workspace_id)
+        .gte("date", first)
+        .lte("date", last)
+        .order("date", desc=False)
+        .execute()
+    )
+    rows = res.data or []
+
+    income  = sum(r["amount"] for r in rows if r["type"] == "income")
+    expense = sum(r["amount"] for r in rows if r["type"] == "expense")
+
+    # Format transaksi untuk PDF
+    transactions = [
+        {
+            "date":        r["date"],
+            "description": r.get("description") or "-",
+            "category":    r["categories"]["name"] if r.get("categories") else "-",
+            "type":        r["type"],
+            "amount":      r["amount"],
+        }
+        for r in rows
+    ]
+
+    # Kategori pengeluaran
+    cat_map: dict = {}
+    for r in rows:
+        if r["type"] != "expense":
+            continue
+        key = r["categories"]["name"] if r.get("categories") else "Lainnya"
+        if key not in cat_map:
+            cat_map[key] = {"name": key, "amount": 0, "count": 0}
+        cat_map[key]["amount"] += r["amount"]
+        cat_map[key]["count"]  += 1
+    category_data = sorted(cat_map.values(), key=lambda x: x["amount"], reverse=True)
+
+    # Tagihan belum lunas
+    unpaid_bills = get_unpaid_bills(workspace_id)
+
+    return {
+        "income":        income,
+        "expense":       expense,
+        "transactions":  transactions,
+        "category_data": category_data,
+        "unpaid_bills":  unpaid_bills,
+    }
+
 def mark_bill_paid(bill_id: str):
     """Tandai tagihan sebagai lunas."""
     from datetime import datetime, timezone

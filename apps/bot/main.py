@@ -5,6 +5,7 @@ import os
 import asyncio
 import logging
 import requests as req_lib
+from datetime import datetime, timezone, timedelta
 from flask import Flask, request, jsonify
 from telegram import Update
 from telegram.ext import (
@@ -14,6 +15,8 @@ from telegram.ext import (
 from handlers.start import cmd_start, cmd_saldo, cmd_help, cmd_hubungkan, cmd_lunas
 from handlers.messages import handle_message
 from handlers.callbacks import handle_callback
+from report import send_monthly_report
+from db import get_all_telegram_links, get_monthly_report_data
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -67,6 +70,58 @@ def webhook():
 @flask_app.get("/")
 def health():
     return jsonify({"status": "alive", "bot": "KasRT"}), 200
+
+@flask_app.get("/cron/monthly-report")
+def cron_monthly_report():
+    """
+    Dipanggil cron-job.org tiap tanggal 1 jam 07:00 WIB (00:00 UTC).
+    Kirim laporan bulan lalu ke semua workspace yang terhubung Telegram.
+    """
+    # Validasi secret
+    secret = request.headers.get("x-cron-secret", "")
+    if secret != os.environ.get("CRON_SECRET", ""):
+        return jsonify({"error": "unauthorized"}), 401
+
+    # Hitung bulan lalu
+    now        = datetime.now(timezone.utc)
+    first_day  = now.replace(day=1)
+    last_month = first_day - timedelta(days=1)
+    month      = last_month.month
+    year       = last_month.year
+
+    links   = get_all_telegram_links()
+    results = []
+
+    for link in links:
+        chat_id      = link["telegram_chat_id"]
+        workspace_id = link["workspace_id"]
+        ws_name      = link["workspaces"]["name"] if link.get("workspaces") else "Workspace"
+
+        try:
+            data = get_monthly_report_data(workspace_id, month, year)
+
+            loop.run_until_complete(
+                send_monthly_report(
+                    bot            = app_bot.bot,
+                    chat_id        = chat_id,
+                    workspace_name = ws_name,
+                    month          = month,
+                    year           = year,
+                    income         = data["income"],
+                    expense        = data["expense"],
+                    transactions   = data["transactions"],
+                    category_data  = data["category_data"],
+                    unpaid_bills   = data["unpaid_bills"],
+                )
+            )
+            results.append({"chat_id": chat_id, "workspace": ws_name, "status": "ok"})
+            logger.info(f"Monthly report sent: {ws_name} ({chat_id})")
+
+        except Exception as e:
+            logger.error(f"Monthly report error ({ws_name}): {e}")
+            results.append({"chat_id": chat_id, "workspace": ws_name, "status": "error", "error": str(e)})
+
+    return jsonify({"month": f"{month}/{year}", "sent": len(results), "results": results}), 200
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))

@@ -9,7 +9,7 @@ import google.generativeai as genai
 logger = logging.getLogger(__name__)
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel("gemini-2.0-flash")
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 # Cache sederhana biar tidak boros quota Gemini
 _cache: dict[str, dict] = {}

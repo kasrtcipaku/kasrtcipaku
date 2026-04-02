@@ -111,10 +111,14 @@ def mark_bill_paid(bill_id: str):
     """Tandai tagihan sebagai lunas."""
     from datetime import datetime, timezone
     db = get_db()
-    db.table("bills").update({
+    res = db.table("bills").update({
         "status":  "paid",
         "paid_at": datetime.now(timezone.utc).isoformat()
     }).eq("id", bill_id).execute()
+
+    # Cek apakah update benar-benar kena
+    if not res.data:
+        raise Exception(f"Bill {bill_id} tidak ditemukan atau tidak bisa diupdate")
 
 def save_telegram_link(telegram_id: int, workspace_id: str, user_id: str):
     """Simpan link telegram ↔ workspace."""

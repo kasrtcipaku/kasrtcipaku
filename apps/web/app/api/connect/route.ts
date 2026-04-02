@@ -69,6 +69,7 @@ export async function POST(req: NextRequest) {
       .from('telegram_links')
       .upsert({
         telegram_chat_id: connectCode.telegram_chat_id,
+        telegram_id: connectCode.telegram_chat_id,  // ← fix: isi telegram_id
         workspace_id,
         user_id: user.id,
       })

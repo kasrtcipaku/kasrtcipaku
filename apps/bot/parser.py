@@ -9,43 +9,61 @@ import google.generativeai as genai
 logger = logging.getLogger(__name__)
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel("gemini-1.5-flash")
 
-# Cache sederhana biar tidak boros quota Gemini
+# Coba model dari yang paling baru ke lama
+_MODEL_OPTIONS = [
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-flash-002",
+    "gemini-1.5-flash-001",
+    "gemini-1.0-pro-latest",
+    "gemini-1.0-pro",
+    "gemini-pro",
+]
+
+def _get_model():
+    """Coba model satu per satu sampai ada yang works."""
+    for model_name in _MODEL_OPTIONS:
+        try:
+            m = genai.GenerativeModel(model_name)
+            # Test kecil
+            m.generate_content("hi")
+            logger.info(f"Model aktif: {model_name}")
+            return m
+        except Exception as e:
+            logger.warning(f"Model {model_name} tidak tersedia: {e}")
+            continue
+    raise RuntimeError("Tidak ada model Gemini yang tersedia!")
+
+# Inisialisasi model saat startup
+try:
+    model = _get_model()
+except Exception as e:
+    logger.error(f"Gagal init model: {e}")
+    model = genai.GenerativeModel("gemini-pro")  # fallback
+
+# Cache sederhana
 _cache: dict[str, dict] = {}
 
-# ── Rate limiter: max 14 request/menit (sedikit di bawah limit 15) ──
+# Rate limiter
 _lock = threading.Lock()
 _request_times = []
 
 def _wait_for_rate_limit():
-    """Tunggu kalau sudah 14 request dalam 60 detik terakhir."""
     with _lock:
         now = time.time()
-        # Hapus request yang sudah lebih dari 60 detik
         while _request_times and _request_times[0] < now - 60:
             _request_times.pop(0)
-
-        # Kalau sudah 14 request, tunggu sampai slot kosong
         if len(_request_times) >= 14:
             wait_time = 60 - (now - _request_times[0]) + 0.5
-            logger.info(f"Rate limit: menunggu {wait_time:.1f} detik...")
+            logger.info(f"Rate limit: menunggu {wait_time:.1f}s...")
             time.sleep(wait_time)
-            # Bersihkan lagi setelah tunggu
             now = time.time()
             while _request_times and _request_times[0] < now - 60:
                 _request_times.pop(0)
-
         _request_times.append(time.time())
 
 def parse_transaction(text: str, categories: list) -> dict | None:
-    """
-    Parse teks natural language jadi data transaksi.
-    Contoh input: "bayar listrik 150rb"
-    Output: {"type": "expense", "amount": 150000, "description": "Bayar listrik", "category": "Listrik"}
-    """
-    # Cek cache dulu
-    cache_key = f"{text.lower().strip()}"
+    cache_key = text.lower().strip()
     if cache_key in _cache:
         logger.info(f"Cache hit: {cache_key}")
         return _cache[cache_key]
@@ -67,27 +85,24 @@ Aturan konversi nominal (WAJIB diikuti):
 - "50k" = 50000
 - "dua ratus ribu" = 200000
 - "setengah juta" = 500000
-- Nominal tanpa satuan yang masuk akal = nilai aslinya (misal "150000" = 150000)
+- Nominal tanpa satuan = nilai aslinya (misal "150000" = 150000)
 
 Aturan tipe transaksi:
-- Kata seperti "bayar", "beli", "keluar", "habis", "kasih", "transfer ke" → expense
-- Kata seperti "terima", "dapat", "masuk", "iuran dari", "bayaran" → income
+- "bayar", "beli", "keluar", "habis", "kasih", "transfer ke" → expense
+- "terima", "dapat", "masuk", "iuran dari", "bayaran" → income
 - Default jika tidak jelas → expense
 
 Format output (HANYA JSON, tidak ada teks lain):
 {{"type": "expense", "amount": 150000, "description": "Deskripsi singkat", "category": "Nama kategori yang paling cocok"}}
 
-Jika teks tidak mengandung transaksi sama sekali, kembalikan:
+Jika teks tidak mengandung transaksi, kembalikan:
 {{"error": "bukan transaksi"}}"""
 
     try:
-        # Tunggu kalau rate limit tercapai
         _wait_for_rate_limit()
-
         response = model.generate_content(prompt)
         raw = response.text.strip()
 
-        # Bersihkan markdown code block kalau ada
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
@@ -96,21 +111,18 @@ Jika teks tidak mengandung transaksi sama sekali, kembalikan:
 
         result = json.loads(raw)
 
-        # Validasi result
         if "error" in result:
             return None
-
         if not all(k in result for k in ["type", "amount"]):
             return None
 
-        # Pastikan amount adalah integer positif
-        result["amount"] = max(1, int(float(str(result["amount"]).replace(",", "").replace(".", ""))))
+        result["amount"] = max(1, int(float(
+            str(result["amount"]).replace(",", "").replace(".", "")
+        )))
 
-        # Cache hasil
         _cache[cache_key] = result
-        if len(_cache) > 200:  # Batas cache 200 item
-            oldest = next(iter(_cache))
-            del _cache[oldest]
+        if len(_cache) > 200:
+            del _cache[next(iter(_cache))]
 
         return result
 
@@ -119,4 +131,10 @@ Jika teks tidak mengandung transaksi sama sekali, kembalikan:
         return None
     except Exception as e:
         logger.error(f"Gemini error: {e}")
+        # Coba reinit model kalau error
+        global model
+        try:
+            model = _get_model()
+        except:
+            pass
         return None

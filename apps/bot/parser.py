@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
-# Coba model dari yang paling baru ke lama
 _MODEL_OPTIONS = [
     "gemini-1.5-flash-latest",
     "gemini-1.5-flash-002",
@@ -20,31 +19,23 @@ _MODEL_OPTIONS = [
     "gemini-pro",
 ]
 
-def _get_model():
+def _init_model():
     """Coba model satu per satu sampai ada yang works."""
     for model_name in _MODEL_OPTIONS:
         try:
             m = genai.GenerativeModel(model_name)
-            # Test kecil
             m.generate_content("hi")
             logger.info(f"Model aktif: {model_name}")
             return m
         except Exception as e:
             logger.warning(f"Model {model_name} tidak tersedia: {e}")
             continue
-    raise RuntimeError("Tidak ada model Gemini yang tersedia!")
+    logger.error("Semua model gagal, pakai gemini-pro sebagai fallback")
+    return genai.GenerativeModel("gemini-pro")
 
-# Inisialisasi model saat startup
-try:
-    model = _get_model()
-except Exception as e:
-    logger.error(f"Gagal init model: {e}")
-    model = genai.GenerativeModel("gemini-pro")  # fallback
+model = _init_model()
 
-# Cache sederhana
 _cache: dict[str, dict] = {}
-
-# Rate limiter
 _lock = threading.Lock()
 _request_times = []
 
@@ -63,6 +54,8 @@ def _wait_for_rate_limit():
         _request_times.append(time.time())
 
 def parse_transaction(text: str, categories: list) -> dict | None:
+    global model
+
     cache_key = text.lower().strip()
     if cache_key in _cache:
         logger.info(f"Cache hit: {cache_key}")
@@ -88,9 +81,9 @@ Aturan konversi nominal (WAJIB diikuti):
 - Nominal tanpa satuan = nilai aslinya (misal "150000" = 150000)
 
 Aturan tipe transaksi:
-- "bayar", "beli", "keluar", "habis", "kasih", "transfer ke" → expense
-- "terima", "dapat", "masuk", "iuran dari", "bayaran" → income
-- Default jika tidak jelas → expense
+- "bayar", "beli", "keluar", "habis", "kasih", "transfer ke" -> expense
+- "terima", "dapat", "masuk", "iuran dari", "bayaran" -> income
+- Default jika tidak jelas -> expense
 
 Format output (HANYA JSON, tidak ada teks lain):
 {{"type": "expense", "amount": 150000, "description": "Deskripsi singkat", "category": "Nama kategori yang paling cocok"}}
@@ -131,10 +124,8 @@ Jika teks tidak mengandung transaksi, kembalikan:
         return None
     except Exception as e:
         logger.error(f"Gemini error: {e}")
-        # Coba reinit model kalau error
-        global model
         try:
-            model = _get_model()
-        except:
+            model = _init_model()
+        except Exception:
             pass
         return None

@@ -4,6 +4,7 @@ load_dotenv()
 import os
 import asyncio
 import logging
+import requests as req_lib
 from flask import Flask, request, jsonify
 from telegram import Update
 from telegram.ext import (
@@ -22,7 +23,16 @@ logger = logging.getLogger(__name__)
 
 TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
 SECRET  = os.environ["TELEGRAM_WEBHOOK_SECRET"]
-APP_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
+APP_URL = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+
+# ── Register webhook via HTTP biasa (tanpa asyncio) ───────────
+if APP_URL:
+    webhook_url = f"{APP_URL}/webhook/{SECRET}"
+    resp = req_lib.post(
+        f"https://api.telegram.org/bot{TOKEN}/setWebhook",
+        json={"url": webhook_url, "allowed_updates": ["message", "callback_query"]}
+    )
+    logger.info(f"Webhook register: {resp.json()}")
 
 # ── Event loop permanen ───────────────────────────────────────
 loop = asyncio.new_event_loop()
@@ -38,7 +48,6 @@ app_bot.add_handler(CommandHandler("hubungkan", cmd_hubungkan))
 app_bot.add_handler(CallbackQueryHandler(handle_callback))
 app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# Initialize bot sekali saat startup
 loop.run_until_complete(app_bot.initialize())
 
 # ── Flask App ─────────────────────────────────────────────────

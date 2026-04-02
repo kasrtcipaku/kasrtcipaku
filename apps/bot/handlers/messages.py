@@ -1,5 +1,5 @@
 # apps/bot/handlers/messages.py
-import json
+import uuid
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -8,15 +8,17 @@ from parser import parse_transaction
 
 logger = logging.getLogger(__name__)
 
+# Simpan pending transaksi di memory dengan key pendek
+_pending: dict[str, dict] = {}
+
 async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text    = update.message.text.strip()
 
-    # Cek apakah sudah terhubung
     link = get_workspace_by_telegram(chat_id)
     if not link:
         await update.message.reply_text(
-            "⚠️ Workspace belum terhubung.\n"
+            "Workspace belum terhubung.\n"
             "Ketik /hubungkan untuk menghubungkan bot ke akun KasRT kamu."
         )
         return
@@ -24,67 +26,67 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ws_id   = link["workspace_id"]
     user_id = link["user_id"]
 
-    # Typing indicator
     await update.message.reply_chat_action("typing")
 
-    # Load kategori workspace
     categories = get_categories(ws_id)
     if not categories:
         await update.message.reply_text(
-            "⚠️ Workspace belum punya kategori. "
+            "Workspace belum punya kategori. "
             "Buka dashboard KasRT untuk setup kategori dulu."
         )
         return
 
-    # Parse dengan Gemini
     result = parse_transaction(text, categories)
 
     if result is None:
         await update.message.reply_text(
-            "🤔 Hmm, saya tidak mengenali transaksi dari pesan itu.\n\n"
+            "Hmm, saya tidak mengenali transaksi dari pesan itu.\n\n"
             "Coba format seperti:\n"
-            "• `bayar listrik 150rb`\n"
-            "• `terima iuran 50000`\n"
-            "• `beli bahan baku 1.2jt`",
-            parse_mode="Markdown"
+            "- bayar listrik 150rb\n"
+            "- terima iuran 50000\n"
+            "- beli bahan baku 1.2jt"
         )
         return
 
-    # Tampilkan konfirmasi
-    tipe_label  = "💚 Pemasukan" if result["type"] == "income" else "❤️ Pengeluaran"
-    cat_label   = result.get("category", "—")
-    desc_label  = result.get("description", text)
-    amount_str  = fmt_rupiah(result["amount"])
+    # Simpan data di memory, buat ID pendek
+    pending_id = str(uuid.uuid4())[:8]
+    _pending[pending_id] = {
+        "type":         result["type"],
+        "amount":       result["amount"],
+        "description":  result.get("description", text),
+        "category":     result.get("category", "-"),
+        "workspace_id": ws_id,
+        "user_id":      user_id,
+    }
+
+    # Bersihkan pending lama (max 100)
+    if len(_pending) > 100:
+        oldest = next(iter(_pending))
+        del _pending[oldest]
+
+    tipe_label = "Pemasukan" if result["type"] == "income" else "Pengeluaran"
+    tipe_emoji = "+" if result["type"] == "income" else "-"
 
     konfirmasi = (
-        f"📋 *Konfirmasi Transaksi*\n"
-        f"{'─' * 26}\n"
-        f"Jenis  : {tipe_label}\n"
-        f"Nominal: *{amount_str}*\n"
-        f"Kategori: {cat_label}\n"
-        f"Keterangan: {desc_label}\n"
-        f"{'─' * 26}\n"
+        f"Konfirmasi Transaksi\n"
+        f"{'─' * 24}\n"
+        f"Jenis    : {tipe_emoji} {tipe_label}\n"
+        f"Nominal  : {fmt_rupiah(result['amount'])}\n"
+        f"Kategori : {result.get('category', '-')}\n"
+        f"Catatan  : {result.get('description', text)}\n"
+        f"{'─' * 24}\n"
         f"Simpan transaksi ini?"
     )
 
-    # Simpan data sementara di context
-    pending_data = json.dumps({
-        "type":        result["type"],
-        "amount":      result["amount"],
-        "description": desc_label,
-        "category":    cat_label,
-        "workspace_id": ws_id,
-        "user_id":     user_id,
-    })
-
+    # callback_data pendek — max 64 byte
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Simpan",  callback_data=f"save|{pending_data}"),
-        InlineKeyboardButton("✏️ Edit",    callback_data=f"edit|{pending_data}"),
-        InlineKeyboardButton("❌ Batal",   callback_data="cancel"),
+        InlineKeyboardButton("Simpan", callback_data=f"save:{pending_id}"),
+        InlineKeyboardButton("Edit",   callback_data=f"edit:{pending_id}"),
+        InlineKeyboardButton("Batal",  callback_data="cancel"),
     ]])
 
-    await update.message.reply_text(
-        konfirmasi,
-        parse_mode="Markdown",
-        reply_markup=keyboard
-    )
+    await update.message.reply_text(konfirmasi, reply_markup=keyboard)
+
+
+def get_pending(pending_id: str) -> dict | None:
+    return _pending.pop(pending_id, None)

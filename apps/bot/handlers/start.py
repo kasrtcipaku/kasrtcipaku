@@ -9,7 +9,7 @@ from db import get_workspace_by_telegram, get_monthly_summary, get_unpaid_bills,
 
 logger = logging.getLogger(__name__)
 
-APP_URL = os.environ.get("NEXT_PUBLIC_APP_URL", "https://kasrt.vercel.app")
+APP_URL = os.environ.get("NEXT_PUBLIC_APP_URL", "https://kasrtcipaku.vercel.app")
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id

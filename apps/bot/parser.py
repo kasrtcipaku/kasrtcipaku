@@ -10,17 +10,14 @@ logger = logging.getLogger(__name__)
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
+# Model terbaru yang support generateContent
 _MODEL_OPTIONS = [
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-flash-002",
-    "gemini-1.5-flash-001",
-    "gemini-1.0-pro-latest",
-    "gemini-1.0-pro",
-    "gemini-pro",
+    "models/gemini-1.5-flash",
+    "models/gemini-1.5-pro",
+    "models/gemini-1.0-pro",
 ]
 
 def _init_model():
-    """Coba model satu per satu sampai ada yang works."""
     for model_name in _MODEL_OPTIONS:
         try:
             m = genai.GenerativeModel(model_name)
@@ -30,8 +27,20 @@ def _init_model():
         except Exception as e:
             logger.warning(f"Model {model_name} tidak tersedia: {e}")
             continue
-    logger.error("Semua model gagal, pakai gemini-pro sebagai fallback")
-    return genai.GenerativeModel("gemini-pro")
+    # Last resort — list semua model dan pakai yang pertama support generateContent
+    try:
+        available = [
+            m.name for m in genai.list_models()
+            if "generateContent" in m.supported_generation_methods
+        ]
+        logger.info(f"Model tersedia: {available}")
+        if available:
+            m = genai.GenerativeModel(available[0])
+            logger.info(f"Pakai model: {available[0]}")
+            return m
+    except Exception as e:
+        logger.error(f"list_models error: {e}")
+    raise RuntimeError("Tidak ada model Gemini yang tersedia!")
 
 model = _init_model()
 
@@ -58,7 +67,6 @@ def parse_transaction(text: str, categories: list) -> dict | None:
 
     cache_key = text.lower().strip()
     if cache_key in _cache:
-        logger.info(f"Cache hit: {cache_key}")
         return _cache[cache_key]
 
     cat_income  = [c["name"] for c in categories if c["type"] == "income"]
@@ -72,23 +80,22 @@ Teks: "{text}"
 Kategori pemasukan tersedia: {", ".join(cat_income) or "Lainnya"}
 Kategori pengeluaran tersedia: {", ".join(cat_expense) or "Lainnya"}
 
-Aturan konversi nominal (WAJIB diikuti):
+Aturan konversi nominal:
 - "150rb" atau "150ribu" = 150000
 - "1.5jt" atau "1,5juta" = 1500000
 - "50k" = 50000
 - "dua ratus ribu" = 200000
-- "setengah juta" = 500000
-- Nominal tanpa satuan = nilai aslinya (misal "150000" = 150000)
+- Nominal tanpa satuan = nilai aslinya
 
-Aturan tipe transaksi:
-- "bayar", "beli", "keluar", "habis", "kasih", "transfer ke" -> expense
-- "terima", "dapat", "masuk", "iuran dari", "bayaran" -> income
-- Default jika tidak jelas -> expense
+Aturan tipe:
+- "bayar", "beli", "keluar", "habis" -> expense
+- "terima", "dapat", "masuk", "iuran" -> income
+- Default -> expense
 
-Format output (HANYA JSON, tidak ada teks lain):
-{{"type": "expense", "amount": 150000, "description": "Deskripsi singkat", "category": "Nama kategori yang paling cocok"}}
+Format output (HANYA JSON):
+{{"type": "expense", "amount": 150000, "description": "Deskripsi singkat", "category": "Kategori"}}
 
-Jika teks tidak mengandung transaksi, kembalikan:
+Jika bukan transaksi:
 {{"error": "bukan transaksi"}}"""
 
     try:
@@ -120,7 +127,7 @@ Jika teks tidak mengandung transaksi, kembalikan:
         return result
 
     except json.JSONDecodeError as e:
-        logger.error(f"JSON parse error: {e} | raw: {raw}")
+        logger.error(f"JSON parse error: {e}")
         return None
     except Exception as e:
         logger.error(f"Gemini error: {e}")

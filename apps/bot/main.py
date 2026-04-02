@@ -24,7 +24,9 @@ TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
 SECRET  = os.environ["TELEGRAM_WEBHOOK_SECRET"]
 APP_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
 
-IS_LOCAL = not APP_URL or APP_URL.startswith("http://")
+# ── Event loop permanen ───────────────────────────────────────
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 
 # ── Telegram Application ──────────────────────────────────────
 app_bot = Application.builder().token(TOKEN).build()
@@ -36,6 +38,9 @@ app_bot.add_handler(CommandHandler("hubungkan", cmd_hubungkan))
 app_bot.add_handler(CallbackQueryHandler(handle_callback))
 app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+# Initialize bot sekali saat startup
+loop.run_until_complete(app_bot.initialize())
+
 # ── Flask App ─────────────────────────────────────────────────
 flask_app = Flask(__name__)
 
@@ -44,12 +49,7 @@ def webhook():
     try:
         data   = request.get_json(force=True)
         update = Update.de_json(data, app_bot.bot)
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(app_bot.initialize())
         loop.run_until_complete(app_bot.process_update(update))
-        loop.close()
     except Exception as e:
         logger.error(f"Webhook error: {e}")
     return "OK", 200

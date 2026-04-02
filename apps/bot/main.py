@@ -1,7 +1,6 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-# apps/bot/main.py
 import os
 import asyncio
 import logging
@@ -41,12 +40,16 @@ app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messa
 flask_app = Flask(__name__)
 
 @flask_app.post(f"/webhook/{SECRET}")
-async def webhook():
+def webhook():
     try:
         data   = request.get_json(force=True)
         update = Update.de_json(data, app_bot.bot)
-        await app_bot.initialize()
-        await app_bot.process_update(update)
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(app_bot.initialize())
+        loop.run_until_complete(app_bot.process_update(update))
+        loop.close()
     except Exception as e:
         logger.error(f"Webhook error: {e}")
     return "OK", 200
@@ -55,19 +58,6 @@ async def webhook():
 def health():
     return jsonify({"status": "alive", "bot": "KasRT"}), 200
 
-# ── Setup webhook saat pertama deploy ─────────────────────────
-async def setup_webhook():
-    if IS_LOCAL:
-        logger.info("Mode lokal — webhook setup dilewati (butuh HTTPS)")
-        return
-    url = f"{APP_URL}/webhook/{SECRET}"
-    await app_bot.bot.set_webhook(
-        url=url,
-        allowed_updates=["message", "callback_query"]
-    )
-    logger.info(f"Webhook registered: {url}")
-
 if __name__ == "__main__":
-    asyncio.run(setup_webhook())
     port = int(os.environ.get("PORT", 8080))
     flask_app.run(host="0.0.0.0", port=port)

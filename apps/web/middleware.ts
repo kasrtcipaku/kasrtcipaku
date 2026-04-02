@@ -2,6 +2,14 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // ─── Bypass auth untuk API internal (cron, connect) ──────────────────────
+  // Route ini validasi sendiri via header x-cron-secret / logic internal
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.next()
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -30,9 +38,9 @@ export async function middleware(request: NextRequest) {
   // Kalau belum login dan akses halaman dashboard → redirect ke /login
   if (
     !user &&
-    !request.nextUrl.pathname.startsWith('/login') &&
-    !request.nextUrl.pathname.startsWith('/auth') &&
-    request.nextUrl.pathname !== '/'
+    !pathname.startsWith('/login') &&
+    !pathname.startsWith('/auth') &&
+    pathname !== '/'
   ) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'

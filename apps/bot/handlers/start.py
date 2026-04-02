@@ -25,6 +25,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"• `beli bahan baku 200k`\n\n"
             f"Perintah lain:\n"
             f"/saldo — Lihat ringkasan bulan ini\n"
+            f"/lunas — Tandai tagihan sudah dibayar\n"
             f"/help — Bantuan lengkap",
             parse_mode="Markdown"
         )
@@ -47,6 +48,7 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "• `keluar untuk kebersihan 75k`\n\n"
         "*Perintah:*\n"
         "/saldo — Ringkasan bulan ini\n"
+        "/lunas — Tandai tagihan sudah dibayar\n"
         "/hubungkan — Hubungkan ke workspace\n"
         "/help — Tampilkan bantuan ini\n\n"
         "*Tips:*\n"
@@ -72,7 +74,6 @@ async def cmd_saldo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     summary = get_monthly_summary(ws_id)
     bills   = get_unpaid_bills(ws_id)
 
-    # Format saldo
     balance_str = fmt_rupiah(summary["balance"])
     sign = "🟢" if summary["balance"] >= 0 else "🔴"
 
@@ -91,6 +92,7 @@ async def cmd_saldo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         for b in bills:
             due = b["due_date"][5:]  # MM-DD
             text += f"• {b['title']} — {fmt_rupiah(b['amount'])} (jatuh tempo {due})\n"
+        text += "\nKetik /lunas untuk tandai tagihan yang sudah dibayar."
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("📈 Lihat Laporan", url=f"{APP_URL}/dashboard/laporan"),
@@ -109,9 +111,9 @@ async def cmd_hubungkan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     db = get_db()
     expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
     db.table("connect_codes").upsert({
-        "code":            code,
+        "code":             code,
         "telegram_chat_id": chat_id,
-        "expires_at":      expires,
+        "expires_at":       expires,
     }).execute()
 
     connect_url = f"{APP_URL}/dashboard/connect?code={code}"
@@ -130,4 +132,34 @@ async def cmd_hubungkan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("🔗 Buka KasRT", url=connect_url)
         ]])
+    )
+
+async def cmd_lunas(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    link    = get_workspace_by_telegram(chat_id)
+
+    if not link:
+        await update.message.reply_text(
+            "⚠️ Workspace belum terhubung. Ketik /hubungkan dulu."
+        )
+        return
+
+    ws_id = link["workspace_id"]
+    bills = get_unpaid_bills(ws_id)
+
+    if not bills:
+        await update.message.reply_text("✅ Tidak ada tagihan yang belum lunas.")
+        return
+
+    keyboard = []
+    for b in bills:
+        due   = b["due_date"][5:]  # MM-DD
+        label = f"{b['title']} — {fmt_rupiah(b['amount'])} (due {due})"
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"lunas:{b['id']}")])
+    keyboard.append([InlineKeyboardButton("Batal", callback_data="cancel")])
+
+    await update.message.reply_text(
+        "💳 *Pilih tagihan yang sudah dibayar:*",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )

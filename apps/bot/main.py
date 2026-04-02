@@ -11,7 +11,7 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters
 )
-from handlers.start import cmd_start, cmd_saldo, cmd_help, cmd_hubungkan
+from handlers.start import cmd_start, cmd_saldo, cmd_help, cmd_hubungkan, cmd_lunas
 from handlers.messages import handle_message
 from handlers.callbacks import handle_callback
 
@@ -45,6 +45,7 @@ app_bot.add_handler(CommandHandler("start",     cmd_start))
 app_bot.add_handler(CommandHandler("saldo",     cmd_saldo))
 app_bot.add_handler(CommandHandler("help",      cmd_help))
 app_bot.add_handler(CommandHandler("hubungkan", cmd_hubungkan))
+app_bot.add_handler(CommandHandler("lunas",     cmd_lunas))
 app_bot.add_handler(CallbackQueryHandler(handle_callback))
 app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 

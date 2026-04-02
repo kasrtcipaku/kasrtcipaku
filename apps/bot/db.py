@@ -107,6 +107,15 @@ def get_unpaid_bills(workspace_id: str) -> list:
     )
     return res.data or []
 
+def mark_bill_paid(bill_id: str):
+    """Tandai tagihan sebagai lunas."""
+    from datetime import datetime, timezone
+    db = get_db()
+    db.table("bills").update({
+        "status":  "paid",
+        "paid_at": datetime.now(timezone.utc).isoformat()
+    }).eq("id", bill_id).execute()
+
 def save_telegram_link(telegram_id: int, workspace_id: str, user_id: str):
     """Simpan link telegram ↔ workspace."""
     db = get_db()

@@ -1,216 +1,452 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-const types = [
-  { value: 'rt',       label: 'RT / RW',       icon: '🏘️', desc: 'Kelola kas dan iuran warga' },
-  { value: 'kosan',    label: 'Kosan',          icon: '🏠', desc: 'Kelola keuangan kos-kosan' },
-  { value: 'warteg',   label: 'Warteg / Usaha', icon: '🍽️', desc: 'Kelola keuangan usaha kecil' },
-  { value: 'personal', label: 'Personal',       icon: '👤', desc: 'Catat keuangan pribadi' },
+const TYPE_OPTIONS = [
+  { value: 'rt',       label: 'RT / RW',        icon: '🏘️', desc: 'Iuran warga, kas, tagihan listrik & air' },
+  { value: 'kosan',    label: 'Kosan',           icon: '🏠', desc: 'Sewa kamar, listrik, internet, perawatan' },
+  { value: 'warteg',   label: 'Warteg / Usaha',  icon: '🍽️', desc: 'Pendapatan harian, bahan baku, gaji' },
+  { value: 'personal', label: 'Personal',        icon: '👤', desc: 'Keuangan pribadi & keluarga' },
 ]
 
-const examples = ['RT 05 Kel. Merdeka', 'Kosan Pak Budi', 'Warteg Bu Sri']
+const DEFAULT_CATS: Record<string, { income: string[]; expense: string[] }> = {
+  rt: {
+    income:  ['Iuran Warga', 'Kas RT', 'Donasi', 'Denda', 'Sumbangan', 'Lain-lain'],
+    expense: ['Listrik', 'Air', 'Keamanan', 'Kebersihan', 'Administrasi', 'Sosial', 'Perawatan', 'Lain-lain'],
+  },
+  kosan: {
+    income:  ['Sewa Kamar', 'Deposit', 'Listrik Tenant', 'Internet Tenant', 'Lain-lain'],
+    expense: ['Listrik', 'Air', 'Internet', 'Perawatan', 'Furnitur', 'Kebersihan', 'Lain-lain'],
+  },
+  warteg: {
+    income:  ['Pendapatan Harian', 'Catering', 'Pesanan Online', 'Lain-lain'],
+    expense: ['Bahan Baku', 'Gaji Karyawan', 'Listrik', 'Gas', 'Peralatan', 'Sewa Tempat', 'Lain-lain'],
+  },
+  personal: {
+    income:  ['Gaji', 'Freelance', 'Investasi', 'Hadiah', 'Lain-lain'],
+    expense: ['Makan', 'Transport', 'Belanja', 'Tagihan', 'Hiburan', 'Kesehatan', 'Tabungan', 'Lain-lain'],
+  },
+}
+
+const SB = '#7AAACE'
+const GREEN = '#2d5a27'
 
 export default function SetupPage() {
   const router = useRouter()
-  const [step, setStep]       = useState<1 | 2>(1)
-  const [type, setType]       = useState('')
-  const [name, setName]       = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState('')
 
-  const handleCreate = async () => {
-    if (!type || !name.trim()) return
-    setLoading(true)
-    setError('')
-    try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
+  const [step, setStep]           = useState(1)
+  const [wsName, setWsName]       = useState('')
+  const [wsType, setWsType]       = useState('rt')
+  const [incomeCats, setIncomeCats]   = useState<string[]>([])
+  const [expenseCats, setExpenseCats] = useState<string[]>([])
+  const [newCat, setNewCat]       = useState('')
+  const [addingFor, setAddingFor] = useState<'income' | 'expense' | null>(null)
+  const [creating, setCreating]   = useState(false)
+  const [error, setError]         = useState('')
+
+  // Cek kalau sudah punya workspace → redirect
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) { router.push('/login'); return }
-      const { error: err } = await supabase
-        .from('workspaces')
-        .insert({ name: name.trim(), type, owner_id: user.id })
-      if (err) throw err
-      router.push('/dashboard')
-      router.refresh()
-    } catch (e: any) {
-      setError(e.message || 'Terjadi kesalahan, coba lagi.')
-      setLoading(false)
+      const { data } = await supabase
+        .from('workspace_members')
+        .select('id')
+        .eq('user_id', user.id)
+        .limit(1)
+      if (data?.length) router.push('/dashboard')
+    })
+  }, [])
+
+  // Reset kategori saat tipe berubah
+  useEffect(() => {
+    const cats = DEFAULT_CATS[wsType]
+    setIncomeCats([...cats.income])
+    setExpenseCats([...cats.expense])
+  }, [wsType])
+
+  const toggleCat = (type: 'income' | 'expense', name: string) => {
+    if (type === 'income') {
+      setIncomeCats(prev =>
+        prev.includes(name) ? prev.filter(c => c !== name) : [...prev, name]
+      )
+    } else {
+      setExpenseCats(prev =>
+        prev.includes(name) ? prev.filter(c => c !== name) : [...prev, name]
+      )
     }
   }
 
+  const addCustomCat = (type: 'income' | 'expense') => {
+    const val = newCat.trim()
+    if (!val) return
+    if (type === 'income') {
+      if (!incomeCats.includes(val)) setIncomeCats(prev => [...prev, val])
+    } else {
+      if (!expenseCats.includes(val)) setExpenseCats(prev => [...prev, val])
+    }
+    setNewCat('')
+    setAddingFor(null)
+  }
+
+  const handleCreate = async () => {
+    if (!wsName.trim()) { setError('Nama workspace wajib diisi.'); return }
+    if (incomeCats.length === 0 && expenseCats.length === 0) {
+      setError('Pilih minimal satu kategori.'); return
+    }
+
+    setCreating(true)
+    setError('')
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { router.push('/login'); return }
+
+    // 1. Buat workspace
+    const { data: ws, error: wsErr } = await supabase
+      .from('workspaces')
+      .insert({ name: wsName.trim(), type: wsType })
+      .select('id')
+      .single()
+
+    if (wsErr || !ws) {
+      setError(wsErr?.message || 'Gagal membuat workspace.')
+      setCreating(false)
+      return
+    }
+
+    // 2. Tambahkan user sebagai owner
+    await supabase.from('workspace_members').insert({
+      workspace_id: ws.id,
+      user_id: user.id,
+      role: 'owner',
+    })
+
+    // 3. Insert kategori yang dipilih
+    const catPayload = [
+      ...incomeCats.map(name => ({ workspace_id: ws.id, name, type: 'income', is_active: true })),
+      ...expenseCats.map(name => ({ workspace_id: ws.id, name, type: 'expense', is_active: true })),
+    ]
+    await supabase.from('categories').insert(catPayload)
+
+    setStep(3)
+    setCreating(false)
+  }
+
+  const selectedType = TYPE_OPTIONS.find(t => t.value === wsType)
+
   return (
-    <div style={{ minHeight: '100vh', background: '#F6F3EE', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px 16px', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{
+      minHeight: '100vh', background: '#FAFAF9',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: '24px 16px', fontFamily: 'DM Sans, system-ui, sans-serif',
+    }}>
       <style>{`
-        @keyframes slin { from { opacity:0; transform:translateX(10px) } to { opacity:1; transform:translateX(0) } }
-        .step-in { animation: slin .22s ease both }
-        .tcard { border-radius:12px; border:1px solid #E8E3DC; background:#FAFAF8; padding:14px 12px; cursor:pointer; text-align:left; position:relative; transition:border-color .15s, background .15s, transform .12s; width:100% }
-        .tcard:hover { border-color:#2D5A27; transform:translateY(-1px) }
-        .tcard.sel { border:1.5px solid #2D5A27; background:#EEF6EC }
-        .chip { font-size:12px; padding:5px 11px; border-radius:99px; border:1px solid #E3DED6; background:#F5F2EB; color:#7A7469; cursor:pointer; transition:all .12s; font-family:inherit }
-        .chip:hover, .chip.on { border-color:#2D5A27; background:#EEF6EC; color:#1A4017 }
-        .inp { width:100%; padding:11px 48px 11px 14px; border:1px solid #E3DED6; border-radius:10px; font-size:14px; font-weight:500; color:#1A1A18; background:#FAFAF8; outline:none; font-family:inherit; box-sizing:border-box }
-        .inp:focus { border-color:#2D5A27; box-shadow:0 0 0 3px rgba(45,90,39,.1) }
-        .inp::placeholder { color:#C5BFB8; font-weight:400 }
-        .btn-g { background:#2D5A27; color:#fff; border:none; border-radius:10px; padding:12px; font-size:14px; font-weight:500; cursor:pointer; width:100%; font-family:inherit; transition:background .15s, transform .12s }
-        .btn-g:hover:not(:disabled) { background:#214A1D; transform:translateY(-1px) }
-        .btn-g:disabled { opacity:.3; cursor:not-allowed; transform:none }
-        .btn-ghost { background:transparent; color:#7A7469; border:1px solid #E3DED6; border-radius:10px; padding:12px; font-size:14px; font-weight:500; cursor:pointer; font-family:inherit; transition:color .12s, border-color .12s }
-        .btn-ghost:hover { color:#1A1A18; border-color:#aaa }
+        @keyframes fadeUp { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:none} }
+        @keyframes scaleIn { from{opacity:0;transform:scale(0.95)} to{opacity:1;transform:scale(1)} }
+        .fade-up { animation: fadeUp 0.35s cubic-bezier(0.22,1,0.36,1) forwards; }
+        .scale-in { animation: scaleIn 0.4s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+        .btn-press:active { transform: scale(0.95); }
+        .btn-press { transition: transform 0.12s, background 0.15s, border-color 0.15s; }
+        .type-card { transition: border-color 0.15s, background 0.15s; }
+        .type-card:hover { border-color: #aac8e0 !important; background: #f0f6fb !important; }
+        .cat-chip { transition: all 0.15s; cursor: pointer; }
+        .cat-chip:hover { opacity: 0.8; }
+        input:focus { outline: none; border-color: #aac8e0 !important; }
       `}</style>
 
-      <div style={{ width: '100%', maxWidth: 440 }}>
-
+      <div className="fade-up" style={{
+        background: '#fff', borderRadius: 20, border: '1px solid #E3DED6',
+        padding: '36px 32px', width: '100%', maxWidth: 480,
+        boxShadow: '0 4px 24px rgba(0,0,0,0.06)',
+      }}>
         {/* Logo */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginBottom: 28 }}>
-          <div style={{ width: 42, height: 42, background: '#2D5A27', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 700, color: '#fff', fontFamily: 'Georgia, serif' }}>
-            K
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 20, fontWeight: 500, color: '#1A1A18', letterSpacing: '-.3px' }}>KasRT</div>
-            <div style={{ fontSize: 13, color: '#7A7469', marginTop: 4, lineHeight: 1.5 }}>
-              Buat workspace pertama kamu untuk<br />mulai mengelola keuangan bersama.
-            </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: SB, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 16, fontFamily: 'Georgia,serif', fontWeight: 700 }}>K</div>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: '#0f0e0c', letterSpacing: '-0.2px' }}>KasRT</div>
+            <div style={{ fontSize: 11, color: '#9C9892', marginTop: 1 }}>Keuangan Bersama</div>
           </div>
         </div>
 
-        {/* Card */}
-        <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #E8E3DC', overflow: 'hidden' }}>
-
-          {/* Progress bar */}
-          <div style={{ height: 3, background: '#EDE9E3' }}>
-            <div style={{ height: '100%', background: '#2D5A27', borderRadius: 99, width: step === 1 ? '50%' : '100%', transition: 'width .4s cubic-bezier(.22,1,.36,1)' }} />
-          </div>
-
-          <div style={{ padding: 24 }}>
-
-            {/* Step indicator */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        {/* Step indicator */}
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 28 }}>
+          {[
+            { n: 1, label: 'Workspace' },
+            { n: 2, label: 'Kategori' },
+            { n: 3, label: 'Selesai' },
+          ].map((s, i) => (
+            <div key={s.n} style={{ display: 'flex', alignItems: 'center', flex: i < 2 ? 1 : 'none' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {/* Dot 1 */}
-                <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#2D5A27', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600 }}>
-                  {step > 1
-                    ? <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M1.5 4.5l2 2L7.5 2" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                    : '1'}
+                <div style={{
+                  width: 24, height: 24, borderRadius: '50%', fontSize: 11, fontWeight: 600,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  background: step > s.n ? GREEN : step === s.n ? SB : '#F0EDE6',
+                  color: step >= s.n ? '#fff' : '#9C9892',
+                }}>
+                  {step > s.n ? '✓' : s.n}
                 </div>
-                <div style={{ width: 18, height: 1, background: '#E3DED6' }} />
-                {/* Dot 2 */}
-                <div style={{ width: 22, height: 22, borderRadius: '50%', background: step === 2 ? '#2D5A27' : '#EDE9E3', color: step === 2 ? '#fff' : '#9C9892', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, transition: 'all .2s' }}>
-                  2
-                </div>
+                <span style={{
+                  fontSize: 12, fontWeight: step === s.n ? 600 : 400,
+                  color: step === s.n ? '#0f0e0c' : '#9C9892',
+                }}>
+                  {s.label}
+                </span>
               </div>
-              <span style={{ fontSize: 11, color: '#9C9892', letterSpacing: '.06em', textTransform: 'uppercase', fontWeight: 500 }}>
-                {step === 1 ? 'Pilih tipe' : 'Beri nama'}
-              </span>
+              {i < 2 && <div style={{ flex: 1, height: 1, background: '#E3DED6', margin: '0 10px' }} />}
+            </div>
+          ))}
+        </div>
+
+        {/* ─── STEP 1: Nama & Tipe ─────────────────────────────────────────── */}
+        {step === 1 && (
+          <div>
+            <h2 style={{ fontSize: 22, fontWeight: 600, color: '#0f0e0c', marginBottom: 6, letterSpacing: '-0.3px' }}>
+              Buat workspace
+            </h2>
+            <p style={{ fontSize: 13, color: '#7a7469', marginBottom: 24, lineHeight: 1.6 }}>
+              Workspace adalah ruang kerja kamu. Bisa untuk RT, kosan, warung, atau keuangan pribadi.
+            </p>
+
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#7a7469', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: 6 }}>
+              Nama workspace
+            </label>
+            <input
+              type="text"
+              value={wsName}
+              onChange={e => setWsName(e.target.value)}
+              placeholder="Contoh: RT 05 Kel. Merdeka"
+              style={{
+                width: '100%', padding: '10px 14px', border: '1px solid #E3DED6',
+                borderRadius: 10, fontSize: 14, fontFamily: 'inherit', color: '#0f0e0c',
+                background: '#FAFAF8', marginBottom: 20, boxSizing: 'border-box',
+              }}
+            />
+
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#7a7469', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: 10 }}>
+              Tipe workspace
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 24 }}>
+              {TYPE_OPTIONS.map(t => (
+                <div
+                  key={t.value}
+                  className="type-card btn-press"
+                  onClick={() => setWsType(t.value)}
+                  style={{
+                    border: wsType === t.value ? `2px solid ${SB}` : '1px solid #E3DED6',
+                    borderRadius: 12, padding: '14px 12px', cursor: 'pointer',
+                    background: wsType === t.value ? '#f0f6fb' : '#FAFAF8',
+                  }}
+                >
+                  <div style={{ fontSize: 22, marginBottom: 8 }}>{t.icon}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#0f0e0c', marginBottom: 3 }}>{t.label}</div>
+                  <div style={{ fontSize: 11.5, color: '#7a7469', lineHeight: 1.4 }}>{t.desc}</div>
+                </div>
+              ))}
             </div>
 
-            {/* ── STEP 1 ── */}
-            {step === 1 && (
-              <div className="step-in">
-                <div style={{ fontSize: 16, fontWeight: 500, color: '#1A1A18', marginBottom: 4 }}>Workspace untuk apa?</div>
-                <div style={{ fontSize: 13, color: '#7A7469', marginBottom: 18, lineHeight: 1.5 }}>Pilih yang paling sesuai dengan kebutuhan kamu.</div>
+            <button
+              onClick={() => {
+                if (!wsName.trim()) { setError('Nama workspace wajib diisi.'); return }
+                setError('')
+                setStep(2)
+              }}
+              className="btn-press"
+              style={{
+                width: '100%', padding: '12px', background: GREEN, color: '#fff',
+                border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}
+            >
+              Lanjut →
+            </button>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 18 }}>
-                  {types.map(t => (
-                    <button
-                      key={t.value}
-                      className={`tcard${type === t.value ? ' sel' : ''}`}
-                      onClick={() => setType(t.value)}
-                    >
-                      {type === t.value && (
-                        <div style={{ position: 'absolute', top: 9, right: 9, width: 15, height: 15, background: '#2D5A27', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <svg width="8" height="8" viewBox="0 0 8 8" fill="none"><path d="M1.5 4l1.8 1.8L6.5 2" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        </div>
-                      )}
-                      <span style={{ fontSize: 20, display: 'block', marginBottom: 10, lineHeight: 1 }}>{t.icon}</span>
-                      <span style={{ fontSize: 13, fontWeight: 500, color: '#1A1A18', display: 'block' }}>{t.label}</span>
-                      <span style={{ fontSize: 12, color: '#7A7469', display: 'block', marginTop: 2, lineHeight: 1.35 }}>{t.desc}</span>
-                    </button>
-                  ))}
-                </div>
+            {error && <p style={{ fontSize: 12, color: '#dc2626', marginTop: 10, textAlign: 'center' }}>{error}</p>}
+          </div>
+        )}
 
-                <button className="btn-g" disabled={!type} onClick={() => setStep(2)}>
-                  Lanjutkan
+        {/* ─── STEP 2: Kategori ────────────────────────────────────────────── */}
+        {step === 2 && (
+          <div>
+            <h2 style={{ fontSize: 22, fontWeight: 600, color: '#0f0e0c', marginBottom: 6, letterSpacing: '-0.3px' }}>
+              Pilih kategori
+            </h2>
+            <p style={{ fontSize: 13, color: '#7a7469', marginBottom: 24, lineHeight: 1.6 }}>
+              Kategori default untuk <strong style={{ color: '#0f0e0c' }}>{selectedType?.label}</strong>. Aktifkan yang relevan, nonaktifkan yang tidak perlu. Bisa diubah kapan saja.
+            </p>
+
+            {/* Income */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                  ↑ Pemasukan
+                </label>
+                <button onClick={() => setAddingFor(addingFor === 'income' ? null : 'income')}
+                  style={{ fontSize: 11, color: SB, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
+                  + Tambah
                 </button>
               </div>
-            )}
-
-            {/* ── STEP 2 ── */}
-            {step === 2 && (
-              <div className="step-in">
-                <div style={{ fontSize: 16, fontWeight: 500, color: '#1A1A18', marginBottom: 4 }}>Nama workspace</div>
-                <div style={{ fontSize: 13, color: '#7A7469', marginBottom: 16, lineHeight: 1.5 }}>Beri nama yang mudah dikenali anggota kamu.</div>
-
-                {/* Chips */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 12 }}>
-                  {examples.map(ex => (
-                    <button key={ex} className={`chip${name === ex ? ' on' : ''}`} onClick={() => setName(ex)}>
-                      {ex}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Input */}
-                <div style={{ position: 'relative' }}>
-                  <input
-                    className="inp"
-                    type="text"
-                    value={name}
-                    onChange={e => setName(e.target.value.slice(0, 48))}
-                    placeholder="Nama workspace kamu..."
-                    maxLength={48}
-                    autoFocus
-                    onKeyDown={e => e.key === 'Enter' && name.trim() && handleCreate()}
-                  />
-                  <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#B0AA9F', pointerEvents: 'none' }}>
-                    {name.length}/48
-                  </span>
-                </div>
-
-                {/* Error */}
-                {error && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, padding: '10px 12px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, fontSize: 12, fontWeight: 500, color: '#DC2626' }}>
-                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0 }}>
-                      <circle cx="6.5" cy="6.5" r="5.5" stroke="#DC2626" strokeWidth="1.3"/>
-                      <path d="M6.5 3.5v3M6.5 9v.5" stroke="#DC2626" strokeWidth="1.3" strokeLinecap="round"/>
-                    </svg>
-                    {error}
-                  </div>
-                )}
-
-                {/* Buttons */}
-                <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-                  <button className="btn-ghost" style={{ flex: 1 }} onClick={() => { setStep(1); setError('') }}>
-                    ← Kembali
-                  </button>
-                  <button
-                    className="btn-g"
-                    style={{ flex: 2 }}
-                    disabled={!name.trim() || loading}
-                    onClick={handleCreate}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                {DEFAULT_CATS[wsType].income.map(cat => (
+                  <div
+                    key={cat}
+                    className="cat-chip"
+                    onClick={() => toggleCat('income', cat)}
+                    style={{
+                      padding: '5px 12px', borderRadius: 99, fontSize: 12.5, fontWeight: 500,
+                      border: incomeCats.includes(cat) ? '1.5px solid #b8d9b4' : '1px solid #E3DED6',
+                      background: incomeCats.includes(cat) ? '#e8f4e8' : '#F5F2EB',
+                      color: incomeCats.includes(cat) ? '#2d5a27' : '#7a7469',
+                      userSelect: 'none',
+                    }}
                   >
-                    {loading
-                      ? <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                          <span style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin .7s linear infinite' }} />
-                          Menyimpan...
-                        </span>
-                      : 'Buat Workspace'
-                    }
+                    {cat}
+                  </div>
+                ))}
+                {incomeCats.filter(c => !DEFAULT_CATS[wsType].income.includes(c)).map(cat => (
+                  <div key={cat} className="cat-chip" onClick={() => toggleCat('income', cat)} style={{
+                    padding: '5px 12px', borderRadius: 99, fontSize: 12.5, fontWeight: 500,
+                    border: '1.5px solid #b8d9b4', background: '#e8f4e8', color: '#2d5a27', userSelect: 'none',
+                  }}>{cat} ✕</div>
+                ))}
+              </div>
+              {addingFor === 'income' && (
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <input type="text" value={newCat} onChange={e => setNewCat(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && addCustomCat('income')}
+                    placeholder="Nama kategori baru..."
+                    style={{ flex: 1, padding: '7px 10px', border: '1px solid #E3DED6', borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit' }}
+                    autoFocus />
+                  <button onClick={() => addCustomCat('income')} style={{ padding: '7px 12px', background: GREEN, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Tambah
                   </button>
                 </div>
+              )}
+            </div>
+
+            {/* Expense */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                  ↓ Pengeluaran
+                </label>
+                <button onClick={() => setAddingFor(addingFor === 'expense' ? null : 'expense')}
+                  style={{ fontSize: 11, color: SB, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
+                  + Tambah
+                </button>
               </div>
-            )}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                {DEFAULT_CATS[wsType].expense.map(cat => (
+                  <div key={cat} className="cat-chip" onClick={() => toggleCat('expense', cat)} style={{
+                    padding: '5px 12px', borderRadius: 99, fontSize: 12.5, fontWeight: 500,
+                    border: expenseCats.includes(cat) ? '1.5px solid #fecaca' : '1px solid #E3DED6',
+                    background: expenseCats.includes(cat) ? '#fef2f2' : '#F5F2EB',
+                    color: expenseCats.includes(cat) ? '#dc2626' : '#7a7469',
+                    userSelect: 'none',
+                  }}>{cat}</div>
+                ))}
+                {expenseCats.filter(c => !DEFAULT_CATS[wsType].expense.includes(c)).map(cat => (
+                  <div key={cat} className="cat-chip" onClick={() => toggleCat('expense', cat)} style={{
+                    padding: '5px 12px', borderRadius: 99, fontSize: 12.5, fontWeight: 500,
+                    border: '1.5px solid #fecaca', background: '#fef2f2', color: '#dc2626', userSelect: 'none',
+                  }}>{cat} ✕</div>
+                ))}
+              </div>
+              {addingFor === 'expense' && (
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <input type="text" value={newCat} onChange={e => setNewCat(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && addCustomCat('expense')}
+                    placeholder="Nama kategori baru..."
+                    style={{ flex: 1, padding: '7px 10px', border: '1px solid #E3DED6', borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit' }}
+                    autoFocus />
+                  <button onClick={() => addCustomCat('expense')} style={{ padding: '7px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Tambah
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {error && <p style={{ fontSize: 12, color: '#dc2626', marginBottom: 12 }}>{error}</p>}
+
+            <button onClick={handleCreate} disabled={creating} className="btn-press" style={{
+              width: '100%', padding: '12px', background: creating ? '#a3c9a0' : GREEN,
+              color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600,
+              cursor: creating ? 'not-allowed' : 'pointer', fontFamily: 'inherit', marginBottom: 10,
+            }}>
+              {creating ? 'Membuat workspace...' : '✓ Buat Workspace'}
+            </button>
+            <button onClick={() => { setStep(1); setError('') }} className="btn-press" style={{
+              width: '100%', padding: '10px', background: 'transparent', color: '#7a7469',
+              border: '1px solid #E3DED6', borderRadius: 12, fontSize: 13, fontWeight: 500,
+              cursor: 'pointer', fontFamily: 'inherit',
+            }}>
+              ← Kembali
+            </button>
           </div>
-        </div>
+        )}
 
-        <p style={{ textAlign: 'center', fontSize: 12, color: '#B0AA9F', marginTop: 16 }}>
-          Kamu bisa menambah lebih banyak workspace nanti
-        </p>
+        {/* ─── STEP 3: Sukses ──────────────────────────────────────────────── */}
+        {step === 3 && (
+          <div className="scale-in" style={{ textAlign: 'center' }}>
+            <div style={{
+              width: 64, height: 64, borderRadius: '50%', background: '#e8f4e8',
+              border: '2px solid #b8d9b4', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 20px', fontSize: 28,
+            }}>✓</div>
+            <h2 style={{ fontSize: 22, fontWeight: 600, color: '#0f0e0c', marginBottom: 6, letterSpacing: '-0.3px' }}>
+              Workspace siap!
+            </h2>
+            <p style={{ fontSize: 13, color: '#7a7469', marginBottom: 24, lineHeight: 1.6 }}>
+              Kamu sudah bisa mulai mencatat transaksi dan mengundang anggota ke workspace.
+            </p>
+
+            <div style={{
+              background: '#FAFAF8', border: '1px solid #E3DED6', borderRadius: 12,
+              padding: 16, marginBottom: 24, textAlign: 'left',
+            }}>
+              {[
+                { k: 'Nama', v: wsName },
+                { k: 'Tipe', v: selectedType?.label },
+                { k: 'Kategori pemasukan', v: `${incomeCats.length} kategori` },
+                { k: 'Kategori pengeluaran', v: `${expenseCats.length} kategori` },
+              ].map(r => (
+                <div key={r.k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #F0EDE6' }}>
+                  <span style={{ fontSize: 12.5, color: '#7a7469' }}>{r.k}</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: '#0f0e0c' }}>{r.v}</span>
+                </div>
+              ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8 }}>
+                <span style={{ fontSize: 12.5, color: '#7a7469' }}>Status</span>
+                <span style={{ fontSize: 11.5, fontWeight: 600, background: '#e8f4e8', color: '#2d5a27', border: '1px solid #b8d9b4', padding: '3px 10px', borderRadius: 99 }}>Aktif</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="btn-press"
+              style={{
+                width: '100%', padding: '12px', background: GREEN, color: '#fff',
+                border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10,
+              }}
+            >
+              Ke Dashboard →
+            </button>
+            <button
+              onClick={() => router.push('/dashboard/anggota')}
+              className="btn-press"
+              style={{
+                width: '100%', padding: '10px', background: 'transparent', color: '#7a7469',
+                border: '1px solid #E3DED6', borderRadius: 12, fontSize: 13, fontWeight: 500,
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}
+            >
+              Undang anggota sekarang
+            </button>
+          </div>
+        )}
       </div>
-
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   )
 }

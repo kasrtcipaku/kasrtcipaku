@@ -19,16 +19,11 @@ export async function GET(request: Request) {
           .limit(1)
           .maybeSingle()
 
-        // Bukan owner → sign out Google session, arahkan ke login anggota
-        if (member && member.role !== 'owner') {
-          await supabase.auth.signOut()
-          return NextResponse.redirect(`${origin}/login/anggota?hint=gunakan_kode`)
-        }
-
-        // Owner dengan workspace → dashboard
-        // Owner belum punya workspace → setup
-        // Tidak ada record sama sekali → setup
-        const redirectTo = member?.workspace_id ? '/dashboard' : '/dashboard/setup'
+        // Punya workspace sebagai owner → dashboard
+        // Belum punya / bukan owner → setup (buat workspace baru)
+        const redirectTo = (member?.role === 'owner' && member?.workspace_id)
+          ? '/dashboard'
+          : '/dashboard/setup'
         return NextResponse.redirect(`${origin}${redirectTo}`)
       }
     }

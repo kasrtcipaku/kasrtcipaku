@@ -107,7 +107,7 @@ export default function SetupPage() {
     // 1. Buat workspace
     const { data: ws, error: wsErr } = await supabase
       .from('workspaces')
-      .insert({ name: wsName.trim(), type: wsType })
+      .insert({ name: wsName.trim(), type: wsType, owner_id: user.id })
       .select('id')
       .single()
 

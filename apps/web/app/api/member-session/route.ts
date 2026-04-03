@@ -1,6 +1,6 @@
 // app/api/member-session/route.ts
 // Dipanggil oleh dashboard layout untuk validasi member_session cookie
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server-service'
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 
@@ -12,7 +12,7 @@ export async function GET() {
     return NextResponse.json({ valid: false }, { status: 401 })
   }
 
-  const supabase = await createClient()
+  const supabase = createServiceClient()
 
   const { data: session, error } = await supabase
     .from('member_sessions')

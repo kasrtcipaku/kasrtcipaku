@@ -1,5 +1,5 @@
 // app/api/member-logout/route.ts
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server-service'
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 
@@ -8,7 +8,7 @@ export async function POST() {
   const token = cookieStore.get('member_session')?.value
 
   if (token) {
-    const supabase = await createClient()
+    const supabase = createServiceClient()
     // Hapus session dari DB
     await supabase
       .from('member_sessions')

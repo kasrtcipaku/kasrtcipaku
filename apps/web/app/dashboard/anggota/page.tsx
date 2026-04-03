@@ -69,26 +69,39 @@ export default function AnggotaPage() {
     const [membRes, invRes] = await Promise.all([
       supabase
         .from('workspace_members')
-        .select('id, user_id, role, created_at, profiles(full_name, email)')
-        .eq('workspace_id', wsId)
-        .order('created_at', { ascending: true }),
+        .select('id, user_id, role')
+        .eq('workspace_id', wsId),
       supabase
         .from('invitations')
         .select('id, email, role, token, expires_at')
         .eq('workspace_id', wsId)
         .is('accepted_at', null)
-        .gt('expires_at', new Date().toISOString())
-        .order('created_at', { ascending: false }),
+        .gt('expires_at', new Date().toISOString()),
     ])
 
+    // Ambil email dari auth.users via RPC atau fallback ke user_id
+    const rawMembers = membRes.data || []
+    const userIds = rawMembers.map((m: any) => m.user_id)
+
+    // Coba ambil dari tabel profiles dulu, fallback ke kosong
+    const { data: profilesData } = await supabase
+      .from('profiles')
+      .select('id, full_name, email')
+      .in('id', userIds)
+
+    const profileMap: Record<string, { full_name: string; email: string }> = {}
+    ;(profilesData || []).forEach((p: any) => {
+      profileMap[p.id] = { full_name: p.full_name || '', email: p.email || '' }
+    })
+
     setMembers(
-      (membRes.data || []).map((m: any) => ({
+      rawMembers.map((m: any) => ({
         member_id: m.id,
         user_id:   m.user_id,
         role:      m.role,
-        joined_at: m.created_at,
-        full_name: m.profiles?.full_name || '',
-        email:     m.profiles?.email || '',
+        joined_at: '',
+        full_name: profileMap[m.user_id]?.full_name || '',
+        email:     profileMap[m.user_id]?.email || m.user_id,
       }))
     )
     setInvitations((invRes.data as Invitation[]) || [])

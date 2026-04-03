@@ -1,5 +1,5 @@
 // app/api/member-login/route.ts
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server-service'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
@@ -12,7 +12,7 @@ export async function POST(request: Request) {
 
     const normalizedCode = code.trim().toUpperCase()
 
-    const supabase = await createClient()
+    const supabase = createServiceClient()
 
     // Cari member berdasarkan kode
     const { data: member, error: memberErr } = await supabase

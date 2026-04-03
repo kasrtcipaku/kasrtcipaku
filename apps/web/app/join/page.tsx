@@ -16,7 +16,6 @@ const ROLE_DESC: Record<string, string> = {
   viewer: 'Hanya bisa melihat data',
 }
 
-// ── Komponen inner yang pakai useSearchParams ─────────────────────────────────
 function JoinContent() {
   const router       = useRouter()
   const searchParams = useSearchParams()
@@ -33,7 +32,6 @@ function JoinContent() {
       return
     }
 
-    // Timeout 10 detik — kalau masih loading, tampilkan error
     const timeout = setTimeout(() => {
       setStatus('error')
       setErrorMsg('Koneksi lambat atau gagal. Coba refresh halaman ini.')
@@ -43,8 +41,9 @@ function JoinContent() {
     supabase.auth.getUser().then(async ({ data: { user }, error: authErr }) => {
       if (authErr || !user) {
         clearTimeout(timeout)
+        // Belum login Google — ke /login dengan next param supaya balik ke sini setelah login
         const redirectUrl = encodeURIComponent(`/join?token=${token}`)
-        router.push(`/login?redirect=${redirectUrl}`)
+        router.push(`/login?next=${redirectUrl}`)
         return
       }
 
@@ -87,6 +86,8 @@ function JoinContent() {
     setStatus('joining')
 
     const supabase = createClient()
+
+    // 1. Accept invitation via RPC (pakai auth.uid() dari Google login)
     const { data, error } = await supabase.rpc('accept_invitation', { p_token: token })
 
     if (error || data?.error) {
@@ -95,8 +96,7 @@ function JoinContent() {
       return
     }
 
-    // Setelah invitation diterima, set member_session cookie
-    // supaya bisa masuk dashboard sebagai anggota (bukan jalur owner)
+    // 2. Set member_session cookie — switch ke jalur anggota
     try {
       const sessionRes = await fetch('/api/member-session-from-invite', {
         method: 'POST',
@@ -104,14 +104,17 @@ function JoinContent() {
       })
       const sessionData = await sessionRes.json()
       if (!sessionRes.ok || !sessionData.ok) {
-        console.error('Gagal set member session:', sessionData.error)
-        // Tetap lanjut ke dashboard, layout akan handle
+        console.error('Gagal set member session:', sessionData?.error)
       }
     } catch (e) {
       console.error('member-session-from-invite error:', e)
     }
 
+    // 3. Sign out Supabase Auth — jalur anggota tidak pakai Supabase Auth
+    await supabase.auth.signOut()
+
     setStatus('success')
+    // 4. Redirect ke dashboard — layout baca member_session
     setTimeout(() => router.push('/dashboard'), 2000)
   }
 
@@ -128,12 +131,8 @@ function JoinContent() {
       {status === 'ready' && inviteInfo && (
         <div className="text-center">
           <div className="text-4xl mb-4">🎉</div>
-          <h2 className="text-xl font-serif font-semibold text-[#0f0e0c] mb-1">
-            Kamu diundang!
-          </h2>
-          <p className="text-sm text-[#7a7469] mb-6">
-            Bergabung ke workspace
-          </p>
+          <h2 className="text-xl font-serif font-semibold text-[#0f0e0c] mb-1">Kamu diundang!</h2>
+          <p className="text-sm text-[#7a7469] mb-6">Bergabung ke workspace</p>
           <div className="bg-[#f5f2eb] rounded-xl p-4 mb-6 text-left">
             <p className="text-xs text-[#7a7469] mb-1">Workspace</p>
             <p className="text-base font-bold text-[#0f0e0c]">{inviteInfo.workspace_name}</p>
@@ -196,7 +195,6 @@ function JoinContent() {
   )
 }
 
-// ── Fallback saat Suspense loading ────────────────────────────────────────────
 function JoinFallback() {
   return (
     <div className="bg-white rounded-2xl border border-[#d4cfc4] p-8 max-w-sm w-full shadow-sm">
@@ -209,7 +207,6 @@ function JoinFallback() {
   )
 }
 
-// ── Page utama — Suspense wajib di sini ──────────────────────────────────────
 export default function JoinPage() {
   return (
     <div className="min-h-screen bg-[#f5f2eb] flex items-center justify-center p-4">
@@ -220,7 +217,6 @@ export default function JoinPage() {
         .btn-press:active { transform: scale(0.93); }
         .btn-press { transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
       `}</style>
-
       <Suspense fallback={<JoinFallback />}>
         <JoinContent />
       </Suspense>

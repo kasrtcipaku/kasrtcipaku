@@ -14,13 +14,12 @@ export async function GET(request: Request) {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
 
-        // Kalau ada redirect param (misal dari /join?token=...), ikuti dulu
-        // tanpa cek workspace — biarkan halaman tujuan yang handle
+        // Ada next param (misal dari /join?token=...) — ikuti, jangan cek workspace
         if (next && next.startsWith('/')) {
           return NextResponse.redirect(`${origin}${next}`)
         }
 
-        // Login Google normal = jalur owner
+        // Login normal tanpa redirect — jalur owner
         const { data: ownerMember } = await supabase
           .from('workspace_members')
           .select('workspace_id')
@@ -29,11 +28,7 @@ export async function GET(request: Request) {
           .limit(1)
           .maybeSingle()
 
-        if (ownerMember?.workspace_id) {
-          return NextResponse.redirect(`${origin}/dashboard`)
-        }
-
-        return NextResponse.redirect(`${origin}/setup`)
+        return NextResponse.redirect(`${origin}${ownerMember?.workspace_id ? '/dashboard' : '/setup'}`)
       }
     }
   }

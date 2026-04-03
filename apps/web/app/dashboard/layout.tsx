@@ -129,8 +129,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const { data: { user } } = await supabase.auth.getUser()
 
       if (user) {
-        // Ada Supabase Auth user — cek apakah dia owner workspace
-        // Gunakan API sederhana untuk cek, atau langsung lewat supabase client
+        // Cek apakah dia owner workspace
         const { data: ownerCheck } = await supabase
           .from('workspace_members')
           .select('workspace_id')
@@ -140,7 +139,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           .maybeSingle()
 
         if (ownerCheck?.workspace_id) {
-          // Confirmed owner — bersihkan member_session, set sebagai owner
+          // Owner — bersihkan member_session, set sebagai owner
           await fetch('/api/member-logout', { method: 'POST', credentials: 'include' })
           setInfo({
             sessionType: 'owner',
@@ -151,10 +150,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           return
         }
 
-        // Punya Supabase Auth tapi bukan owner — cek member_session dulu
-        // (kasus: baru accept invitation, member_session sudah di-set, Supabase Auth belum sign out)
-        // Jangan hapus member_session di sini, lanjut ke cek member_session di bawah
-        // Sign out Supabase Auth supaya tidak mengganggu jalur member
+        // Bukan owner (misal baru accept invitation) — sign out Supabase Auth,
+        // jangan hapus member_session, lanjut cek member_session di bawah
         await supabase.auth.signOut()
       }
 
@@ -182,8 +179,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
       }
 
-      // 3. Tidak ada session valid → redirect ke login
-      router.push('/login')
+      // 3. Tidak ada session valid → redirect
+      router.push('/')
     }
 
     checkAuth()

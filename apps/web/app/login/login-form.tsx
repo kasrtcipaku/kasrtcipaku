@@ -6,23 +6,22 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 
 export default function LoginForm() {
-  const [loading, setLoading] = useState(false)
-  const searchParams = useSearchParams()
-
-  const supabase = createClient()
+  const [loading, setLoading]  = useState(false)
+  const searchParams           = useSearchParams()
 
   async function handleGoogle() {
     setLoading(true)
+    const supabase = createClient()
 
-    // Ambil redirect/next param dari URL kalau ada (misal dari /join?token=...)
-    const redirectParam = searchParams.get('redirect') ?? searchParams.get('next') ?? null
-    const callbackUrl = redirectParam
-      ? `${location.origin}/auth/callback?next=${encodeURIComponent(redirectParam)}`
+    // Ambil next/redirect param dari URL kalau ada (misal dari /join?token=...)
+    const nextParam = searchParams.get('next') ?? searchParams.get('redirect') ?? null
+    const callbackUrl = nextParam
+      ? `${location.origin}/auth/callback?next=${encodeURIComponent(nextParam)}`
       : `${location.origin}/auth/callback`
 
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: callbackUrl }
+      options: { redirectTo: callbackUrl },
     })
   }
 

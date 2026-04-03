@@ -6,14 +6,14 @@ import LoginForm from './login-form'
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: { redirect?: string; next?: string }
+  searchParams: { next?: string; redirect?: string }
 }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   if (user) {
-    // Kalau ada redirect param (misal balik dari /join?token=...), ikuti itu dulu
-    const nextUrl = searchParams.redirect ?? searchParams.next ?? null
+    // Kalau ada next param (misal dari invitation), ikuti dulu
+    const nextUrl = searchParams.next ?? searchParams.redirect ?? null
     if (nextUrl && nextUrl.startsWith('/')) {
       redirect(nextUrl)
     }

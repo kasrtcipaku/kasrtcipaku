@@ -37,7 +37,7 @@ export default function MemberLoginPage() {
 
       setWsName(data.workspace_name || '')
       setStatus('success')
-      setTimeout(() => router.push('/dashboard'), 1800)
+      setTimeout(() => router.push('/anggota/dashboard'), 1800)
     } catch {
       setError('Terjadi kesalahan. Coba lagi.')
       setStatus('error')

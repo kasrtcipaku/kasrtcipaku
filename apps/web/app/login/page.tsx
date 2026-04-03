@@ -19,12 +19,7 @@ export default async function LoginPage() {
           <h2 className="text-xl font-semibold mb-6 text-[#0f0e0c]">Masuk ke akun</h2>
           <LoginForm />
         </div>
-        <p className="text-center text-xs text-[#7a7469] mt-6">
-          Belum punya akun?{' '}
-          <a href="/register" className="text-[#2d5a27] font-medium hover:underline">
-            Daftar gratis
-          </a>
-        </p>
+
       </div>
     </div>
   )

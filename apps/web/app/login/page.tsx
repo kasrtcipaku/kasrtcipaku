@@ -3,12 +3,22 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import LoginForm from './login-form'
 
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: { redirect?: string; next?: string }
+}) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   if (user) {
-    // Cek workspace — redirect sesuai
+    // Kalau ada redirect param (misal balik dari /join?token=...), ikuti itu dulu
+    const nextUrl = searchParams.redirect ?? searchParams.next ?? null
+    if (nextUrl && nextUrl.startsWith('/')) {
+      redirect(nextUrl)
+    }
+
+    // Login normal — cek workspace owner
     const { data: member } = await supabase
       .from('workspace_members')
       .select('workspace_id')

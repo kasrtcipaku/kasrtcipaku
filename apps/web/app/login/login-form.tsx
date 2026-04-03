@@ -1,19 +1,28 @@
 'use client'
 
 import { useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 
 export default function LoginForm() {
   const [loading, setLoading] = useState(false)
+  const searchParams = useSearchParams()
 
   const supabase = createClient()
 
   async function handleGoogle() {
     setLoading(true)
+
+    // Ambil redirect/next param dari URL kalau ada (misal dari /join?token=...)
+    const redirectParam = searchParams.get('redirect') ?? searchParams.get('next') ?? null
+    const callbackUrl = redirectParam
+      ? `${location.origin}/auth/callback?next=${encodeURIComponent(redirectParam)}`
+      : `${location.origin}/auth/callback`
+
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${location.origin}/auth/callback` }
+      options: { redirectTo: callbackUrl }
     })
   }
 

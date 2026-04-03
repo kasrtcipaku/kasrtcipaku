@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
+  const next = searchParams.get('next') ?? searchParams.get('redirect') ?? null
 
   if (code) {
     const supabase = await createClient()
@@ -12,8 +13,14 @@ export async function GET(request: Request) {
     if (!error) {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
-        // Login Google = jalur owner saja
-        // Kalau tidak punya workspace sebagai owner (termasuk yang cuma jadi anggota) → setup
+
+        // Kalau ada redirect param (misal dari /join?token=...), ikuti dulu
+        // tanpa cek workspace — biarkan halaman tujuan yang handle
+        if (next && next.startsWith('/')) {
+          return NextResponse.redirect(`${origin}${next}`)
+        }
+
+        // Login Google normal = jalur owner
         const { data: ownerMember } = await supabase
           .from('workspace_members')
           .select('workspace_id')

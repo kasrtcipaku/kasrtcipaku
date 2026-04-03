@@ -186,6 +186,10 @@ export default function SetupPage() {
       setError('Pilih minimal satu kategori.'); return
     }
 
+    // Guard: cegah double-submit meski tombol diklik cepat 2x
+    if (isSubmitting.current) return
+    isSubmitting.current = true
+
     setCreating(true)
     setError('')
     const supabase = createClient()
@@ -213,13 +217,14 @@ export default function SetupPage() {
       role: 'owner',
     })
 
-    // 3. Insert SEMUA kategori yang aktif (dipilih) ke Supabase
-    //    Menyertakan icon supaya halaman transaksi bisa tampil dengan benar
+    // 3. Upsert kategori — ignoreDuplicates supaya aman dari race condition
     const catPayload = [
-      ...incomeCats.map(c  => ({ workspace_id: ws.id, name: c.name,  icon: c.icon,  type: 'income',  is_active: true })),
-      ...expenseCats.map(c => ({ workspace_id: ws.id, name: c.name,  icon: c.icon,  type: 'expense', is_active: true })),
+      ...incomeCats.map(c  => ({ workspace_id: ws.id, name: c.name, icon: c.icon, type: 'income',  is_active: true })),
+      ...expenseCats.map(c => ({ workspace_id: ws.id, name: c.name, icon: c.icon, type: 'expense', is_active: true })),
     ]
-    const { error: catErr } = await supabase.from('categories').insert(catPayload)
+    const { error: catErr } = await supabase
+      .from('categories')
+      .upsert(catPayload, { onConflict: 'workspace_id,name,type', ignoreDuplicates: true })
 
     if (catErr) {
       setError(catErr.message)
@@ -230,7 +235,7 @@ export default function SetupPage() {
 
     setStep(3)
     setCreating(false)
-    // isSubmitting.current tetap true — tidak perlu reset karena flow sudah selesai
+    // isSubmitting.current tetap true — flow selesai, tidak perlu reset
   }
 
   const selectedType = TYPE_OPTIONS.find(t => t.value === wsType)

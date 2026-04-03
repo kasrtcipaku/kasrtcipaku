@@ -95,6 +95,22 @@ function JoinContent() {
       return
     }
 
+    // Setelah invitation diterima, set member_session cookie
+    // supaya bisa masuk dashboard sebagai anggota (bukan jalur owner)
+    try {
+      const sessionRes = await fetch('/api/member-session-from-invite', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const sessionData = await sessionRes.json()
+      if (!sessionRes.ok || !sessionData.ok) {
+        console.error('Gagal set member session:', sessionData.error)
+        // Tetap lanjut ke dashboard, layout akan handle
+      }
+    } catch (e) {
+      console.error('member-session-from-invite error:', e)
+    }
+
     setStatus('success')
     setTimeout(() => router.push('/dashboard'), 2000)
   }

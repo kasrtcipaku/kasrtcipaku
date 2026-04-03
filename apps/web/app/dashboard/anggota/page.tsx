@@ -69,7 +69,7 @@ export default function AnggotaPage() {
     const [membRes, invRes] = await Promise.all([
       supabase
         .from('workspace_members')
-        .select('id, user_id, role')
+        .select('id, user_id, role, invited_at')
         .eq('workspace_id', wsId),
       supabase
         .from('invitations')
@@ -99,9 +99,9 @@ export default function AnggotaPage() {
         member_id: m.id,
         user_id:   m.user_id,
         role:      m.role,
-        joined_at: '',
+        joined_at: m.invited_at || '',
         full_name: profileMap[m.user_id]?.full_name || '',
-        email:     profileMap[m.user_id]?.email || m.user_id,
+        email:     profileMap[m.user_id]?.email || '',
       }))
     )
     setInvitations((invRes.data as Invitation[]) || [])
@@ -339,8 +339,8 @@ export default function AnggotaPage() {
                   </span>
                   {isMe && <span style={{ fontSize:10, background:'#f5f2eb', color:'#7a7469', padding:'2px 7px', borderRadius:99, fontWeight:600, flexShrink:0 }}>Kamu</span>}
                 </div>
-                <p style={{ fontSize:12, color:'#7a7469', margin:'2px 0 0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.email}</p>
-                <p style={{ fontSize:11, color:'#a8a39a', margin:'2px 0 0' }}>Bergabung {fmt(m.joined_at)}</p>
+                <p style={{ fontSize:12, color:'#7a7469', margin:'2px 0 0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.email || <span style={{color:'#c4bfb8',fontStyle:'italic'}}>Email tidak tersedia</span>}</p>
+                {m.joined_at && <p style={{ fontSize:11, color:'#a8a39a', margin:'2px 0 0' }}>Bergabung {fmt(m.joined_at)}</p>}
               </div>
 
               {canManage && m.role !== 'owner' && !isMe ? (

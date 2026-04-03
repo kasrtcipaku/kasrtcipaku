@@ -41,17 +41,16 @@ function JoinContent() {
     supabase.auth.getUser().then(async ({ data: { user }, error: authErr }) => {
       if (authErr || !user) {
         clearTimeout(timeout)
-        // Belum login Google — ke /login dengan next param supaya balik ke sini setelah login
         const redirectUrl = encodeURIComponent(`/join?token=${token}`)
         router.push(`/login?next=${redirectUrl}`)
         return
       }
 
+      // Cek apakah undangan valid (belum dipakai & belum expired)
       const { data, error: invErr } = await supabase
         .from('invitations')
-        .select('role, workspaces(name)')
+        .select('role, workspaces(name), accepted_at')
         .eq('token', token)
-        .is('accepted_at', null)
         .gt('expires_at', new Date().toISOString())
         .maybeSingle()
 
@@ -65,7 +64,14 @@ function JoinContent() {
 
       if (!data) {
         setStatus('error')
-        setErrorMsg('Undangan tidak ditemukan, sudah digunakan, atau sudah expired.')
+        setErrorMsg('Undangan tidak ditemukan atau sudah expired.')
+        return
+      }
+
+      // Kalau undangan sudah accepted — cek apakah user ini sudah jadi member
+      if (data.accepted_at) {
+        // Langsung coba buat member session, mungkin tinggal kurang session saja
+        await tryCreateMemberSession()
         return
       }
 
@@ -81,6 +87,43 @@ function JoinContent() {
     })
   }, [token])
 
+  // Ekstrak logika buat member session supaya bisa dipanggil dari dua tempat
+  const tryCreateMemberSession = async () => {
+    setStatus('joining')
+
+    try {
+      const sessionRes = await fetch('/api/member-session-from-invite', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const sessionData = await sessionRes.json()
+
+      if (!sessionRes.ok || !sessionData.ok) {
+        setStatus('error')
+        setErrorMsg(
+          sessionData?.error
+            ? `Gagal membuat sesi: ${sessionData.error}`
+            : 'Gagal membuat sesi anggota. Coba refresh dan ulangi.'
+        )
+        return
+      }
+
+      // Sign out Supabase Auth — jalur anggota tidak pakai Supabase Auth
+      try {
+        const supabase = createClient()
+        await supabase.auth.signOut()
+      } catch (e) {
+        console.warn('signOut warning:', e)
+      }
+
+      setStatus('success')
+      setTimeout(() => router.push('/dashboard'), 2000)
+    } catch (e: any) {
+      setStatus('error')
+      setErrorMsg(`Gagal membuat sesi: ${e?.message || 'Network error'}`)
+    }
+  }
+
   const handleAccept = async () => {
     if (!token) return
     setStatus('joining')
@@ -90,51 +133,21 @@ function JoinContent() {
     // 1. Accept invitation via RPC
     const { data, error } = await supabase.rpc('accept_invitation', { p_token: token })
 
-    if (error || data?.error) {
+    if (error) {
       setStatus('error')
-      setErrorMsg(error?.message || data?.error || 'Gagal bergabung.')
+      setErrorMsg(error.message || 'Gagal bergabung.')
       return
     }
 
-    // 2. Set member_session cookie — HARUS berhasil sebelum lanjut
-    try {
-      const sessionRes = await fetch('/api/member-session-from-invite', {
-        method: 'POST',
-        credentials: 'include',
-      })
-      const sessionData = await sessionRes.json()
-
-      if (!sessionRes.ok || !sessionData.ok) {
-        // Gagal buat member session — jangan lanjut redirect
-        console.error('Gagal set member session:', sessionData?.error)
-        setStatus('error')
-        setErrorMsg(
-          sessionData?.error
-            ? `Gagal membuat sesi: ${sessionData.error}`
-            : 'Gagal membuat sesi anggota. Coba refresh dan ulangi.'
-        )
-        return
-      }
-    } catch (e: any) {
-      console.error('member-session-from-invite error:', e)
-      setStatus('error')
-      setErrorMsg(`Gagal membuat sesi: ${e?.message || 'Network error'}`)
-      return
+    // RPC return error string (misal sudah accepted sebelumnya) — tetap lanjut buat session
+    // karena mungkin hanya session-nya yang belum ada
+    if (data?.error) {
+      console.warn('accept_invitation warning:', data.error)
+      // Tidak return — lanjut coba buat member session
     }
 
-    // 3. Sign out Supabase Auth — jalur anggota tidak pakai Supabase Auth
-    // Lakukan setelah member_session berhasil di-set
-    try {
-      await supabase.auth.signOut()
-    } catch (e) {
-      // Sign out gagal bukan blocker — lanjut saja
-      console.warn('signOut warning:', e)
-    }
-
-    setStatus('success')
-
-    // 4. Redirect ke dashboard — layout baca member_session
-    setTimeout(() => router.push('/dashboard'), 2000)
+    // 2. Buat member session
+    await tryCreateMemberSession()
   }
 
   return (

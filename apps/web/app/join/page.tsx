@@ -87,7 +87,7 @@ function JoinContent() {
 
     const supabase = createClient()
 
-    // 1. Accept invitation via RPC (pakai auth.uid() dari Google login)
+    // 1. Accept invitation via RPC
     const { data, error } = await supabase.rpc('accept_invitation', { p_token: token })
 
     if (error || data?.error) {
@@ -96,24 +96,43 @@ function JoinContent() {
       return
     }
 
-    // 2. Set member_session cookie — switch ke jalur anggota
+    // 2. Set member_session cookie — HARUS berhasil sebelum lanjut
     try {
       const sessionRes = await fetch('/api/member-session-from-invite', {
         method: 'POST',
         credentials: 'include',
       })
       const sessionData = await sessionRes.json()
+
       if (!sessionRes.ok || !sessionData.ok) {
+        // Gagal buat member session — jangan lanjut redirect
         console.error('Gagal set member session:', sessionData?.error)
+        setStatus('error')
+        setErrorMsg(
+          sessionData?.error
+            ? `Gagal membuat sesi: ${sessionData.error}`
+            : 'Gagal membuat sesi anggota. Coba refresh dan ulangi.'
+        )
+        return
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('member-session-from-invite error:', e)
+      setStatus('error')
+      setErrorMsg(`Gagal membuat sesi: ${e?.message || 'Network error'}`)
+      return
     }
 
     // 3. Sign out Supabase Auth — jalur anggota tidak pakai Supabase Auth
-    await supabase.auth.signOut()
+    // Lakukan setelah member_session berhasil di-set
+    try {
+      await supabase.auth.signOut()
+    } catch (e) {
+      // Sign out gagal bukan blocker — lanjut saja
+      console.warn('signOut warning:', e)
+    }
 
     setStatus('success')
+
     // 4. Redirect ke dashboard — layout baca member_session
     setTimeout(() => router.push('/dashboard'), 2000)
   }

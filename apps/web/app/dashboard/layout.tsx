@@ -124,7 +124,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     async function checkAuth() {
-      // 1. Coba Supabase Auth dulu (owner/admin)
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
 
@@ -139,8 +138,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           .maybeSingle()
 
         if (ownerCheck?.workspace_id) {
-          // Owner — bersihkan member_session, set sebagai owner
-          await fetch('/api/member-logout', { method: 'POST', credentials: 'include' })
+          // Confirmed owner — set sebagai owner
+          // TIDAK memanggil member-logout di sini agar tidak merusak
+          // member_session yang mungkin baru saja di-set dari alur join
           setInfo({
             sessionType: 'owner',
             displayName: user.user_metadata?.full_name || 'Pengguna',
@@ -150,8 +150,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           return
         }
 
-        // Bukan owner (misal baru accept invitation) — sign out Supabase Auth,
-        // jangan hapus member_session, lanjut cek member_session di bawah
+        // Supabase Auth aktif tapi bukan owner (misal sisa sesi lama dari alur join
+        // yang belum sempat sign out) — sign out saja, JANGAN hapus member_session,
+        // lanjut cek member_session cookie di bawah
         await supabase.auth.signOut()
       }
 
@@ -179,7 +180,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
       }
 
-      // 3. Tidak ada session valid → redirect
+      // 3. Tidak ada session valid → redirect ke login
       router.push('/')
     }
 
@@ -187,11 +188,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [pathname])
 
   const handleLogout = async () => {
-    // Selalu hapus member_session cookie terlebih dahulu (bersihkan sisa session lama)
-    await fetch('/api/member-logout', { method: 'POST', credentials: 'include' })
     if (info?.sessionType === 'member') {
+      // Hapus member_session cookie lalu ke halaman login anggota
+      await fetch('/api/member-logout', { method: 'POST', credentials: 'include' })
       router.push('/login/anggota')
     } else {
+      // Owner — hapus member_session (bersih-bersih) lalu sign out Supabase Auth
+      await fetch('/api/member-logout', { method: 'POST', credentials: 'include' })
       const supabase = createClient()
       await supabase.auth.signOut()
       router.push('/login')

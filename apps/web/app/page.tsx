@@ -57,8 +57,6 @@ export default function LandingPage() {
         .logo-text { font-size: 17px; font-weight: 700; color: var(--ink); letter-spacing: -0.4px; }
         .logo-sub { font-size: 11px; color: var(--muted); margin-top: 1px; font-family: 'DM Mono', monospace; }
         .nav-pill { display: flex; align-items: center; gap: 8px; }
-        .btn-ghost { padding: 8px 16px; border-radius: 99px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 500; font-family: 'Sora', sans-serif; cursor: pointer; text-decoration: none; transition: all 0.18s; }
-        .btn-ghost:hover { background: var(--warm); color: var(--ink); border-color: #ccc8bf; }
         .btn-solid { padding: 8px 20px; border-radius: 99px; border: none; background: var(--green); color: #fff; font-size: 12.5px; font-weight: 600; font-family: 'Sora', sans-serif; cursor: pointer; text-decoration: none; transition: all 0.18s; }
         .btn-solid:hover { background: var(--green-l); transform: translateY(-1px); box-shadow: 0 6px 20px rgba(45,90,39,0.25); }
 
@@ -80,8 +78,7 @@ export default function LandingPage() {
         }
 
         /* Grid positions */
-        .c-hero    { grid-column: 1 / 8;  grid-row: 1; min-height: 280px; background: var(--green); border-color: transparent; }
-        .c-login   { grid-column: 8 / 13; grid-row: 1; min-height: 280px; background: var(--ink); border-color: transparent; }
+        .c-hero    { grid-column: 1 / 13; grid-row: 1; min-height: 280px; background: var(--green); border-color: transparent; }
         .c-stat1   { grid-column: 1 / 4;  grid-row: 2; }
         .c-stat2   { grid-column: 4 / 7;  grid-row: 2; }
         .c-feat    { grid-column: 7 / 13; grid-row: 2; }
@@ -95,7 +92,6 @@ export default function LandingPage() {
         .d4 { animation-delay: 0.26s; }
         .d5 { animation-delay: 0.33s; }
         .d6 { animation-delay: 0.40s; }
-        .d7 { animation-delay: 0.47s; }
 
         /* ── Hero cell ── */
         .hero-tag { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.15); color: #fff; font-size: 10.5px; font-weight: 600; padding: 4px 10px; border-radius: 99px; margin-bottom: 20px; font-family: 'DM Mono', monospace; letter-spacing: 0.04em; }
@@ -108,16 +104,6 @@ export default function LandingPage() {
         .hero-cta:hover { transform: scale(1.04); box-shadow: 0 8px 28px rgba(0,0,0,0.2); }
         .hero-deco { position: absolute; right: -20px; bottom: -20px; width: 160px; height: 160px; border-radius: 50%; background: rgba(255,255,255,0.06); }
         .hero-deco2 { position: absolute; right: 40px; bottom: 40px; width: 80px; height: 80px; border-radius: 50%; background: rgba(255,255,255,0.08); }
-
-        /* ── Login cell ── */
-        .login-eyebrow { font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.1em; font-family: 'DM Mono', monospace; margin-bottom: 12px; }
-        .login-title { font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 8px; letter-spacing: -0.5px; }
-        .login-desc { font-size: 12.5px; color: rgba(255,255,255,0.5); margin-bottom: 28px; line-height: 1.5; }
-        .login-btn { display: block; text-align: center; background: #fff; color: var(--ink); font-size: 13px; font-weight: 700; padding: 12px; border-radius: 12px; text-decoration: none; margin-bottom: 10px; transition: all 0.18s; font-family: 'Sora', sans-serif; }
-        .login-btn:hover { background: #f0f0f0; transform: scale(1.02); }
-        .login-btn-alt { display: block; text-align: center; background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); font-size: 12.5px; font-weight: 500; padding: 11px; border-radius: 12px; text-decoration: none; transition: all 0.18s; border: 1px solid rgba(255,255,255,0.15); font-family: 'Sora', sans-serif; }
-        .login-btn-alt:hover { background: rgba(255,255,255,0.18); }
-        .login-deco { position: absolute; top: -30px; right: -30px; width: 120px; height: 120px; border-radius: 50%; background: rgba(122,170,206,0.15); }
 
         /* ── Stat cells ── */
         .stat-icon { font-size: 28px; margin-bottom: 12px; }
@@ -161,7 +147,6 @@ export default function LandingPage() {
         /* Mobile */
         @media (max-width: 768px) {
           .c-hero    { grid-column: 1 / 13; }
-          .c-login   { grid-column: 1 / 13; }
           .c-stat1   { grid-column: 1 / 7; }
           .c-stat2   { grid-column: 7 / 13; }
           .c-feat    { grid-column: 1 / 13; }
@@ -175,7 +160,7 @@ export default function LandingPage() {
       <div className="glow" style={{ left: mousePos.x, top: mousePos.y }} />
 
       <div className="page">
-        {/* Nav */}
+        {/* Nav — hanya satu tombol "Mulai Gratis" */}
         <nav className="nav">
           <div className="logo">
             <div className="logo-icon">Ks</div>
@@ -185,7 +170,6 @@ export default function LandingPage() {
             </div>
           </div>
           <div className="nav-pill">
-            <Link href="/login" className="btn-ghost">Masuk</Link>
             <Link href="/dashboard/setup" className="btn-solid">Mulai Gratis</Link>
           </div>
         </nav>
@@ -193,7 +177,7 @@ export default function LandingPage() {
         {/* Bento */}
         <div className="bento">
 
-          {/* Hero */}
+          {/* Hero — full width sekarang */}
           <div className={`cell c-hero d1 ${mounted ? 'mounted' : ''}`}>
             <div className="hero-deco" />
             <div className="hero-deco2" />
@@ -220,20 +204,8 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Login */}
-          <div className={`cell c-login d2 ${mounted ? 'mounted' : ''}`}>
-            <div className="login-deco" />
-            <div style={{ position: 'relative', zIndex: 1 }}>
-              <div className="login-eyebrow">sudah punya akun?</div>
-              <div className="login-title">Masuk ke<br/>Dashboard</div>
-              <p className="login-desc">Lanjutkan dari mana kamu berhenti. Data aman tersimpan.</p>
-              <Link href="/login" className="login-btn">🔑 Masuk Sekarang</Link>
-              <Link href="/dashboard/setup" className="login-btn-alt">Buat workspace baru →</Link>
-            </div>
-          </div>
-
           {/* Stat 1 */}
-          <div className={`cell c-stat1 d3 ${mounted ? 'mounted' : ''}`}>
+          <div className={`cell c-stat1 d2 ${mounted ? 'mounted' : ''}`}>
             <div className="stat-icon">💸</div>
             <div className="stat-num">Rp0<span> biaya</span></div>
             <div className="stat-label">Sepenuhnya gratis</div>
@@ -243,7 +215,7 @@ export default function LandingPage() {
           </div>
 
           {/* Stat 2 */}
-          <div className={`cell c-stat2 d4 ${mounted ? 'mounted' : ''}`}>
+          <div className={`cell c-stat2 d3 ${mounted ? 'mounted' : ''}`}>
             <div className="stat-icon">⚡</div>
             <div className="stat-num">3<span> menit</span></div>
             <div className="stat-label">Setup workspace</div>
@@ -253,7 +225,7 @@ export default function LandingPage() {
           </div>
 
           {/* Features */}
-          <div className={`cell c-feat d5 ${mounted ? 'mounted' : ''}`}>
+          <div className={`cell c-feat d4 ${mounted ? 'mounted' : ''}`}>
             <div className="feat-title">Semua yang kamu butuhkan</div>
             <div className="feat-list">
               {[
@@ -270,8 +242,8 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Member join */}
-          <div className={`cell c-member d6 ${mounted ? 'mounted' : ''}`}>
+          {/* Member join — info saja, tanpa link login */}
+          <div className={`cell c-member d5 ${mounted ? 'mounted' : ''}`}>
             <div className="member-label">diundang sebagai anggota?</div>
             <div className="member-title">Bergabung ke<br/>workspace</div>
             <p className="member-desc">
@@ -294,21 +266,19 @@ export default function LandingPage() {
           </div>
 
           {/* Quote */}
-          <div className={`cell c-quote d7 ${mounted ? 'mounted' : ''}`}>
+          <div className={`cell c-quote d6 ${mounted ? 'mounted' : ''}`}>
             <div className="quote-mark">"</div>
             <p className="quote-text">
-              KasRT membantu kami mengelola keuangan RT dengan lebih transparan.
-              Semua warga bisa lihat laporan kapan saja, tidak ada lagi pertanyaan
-              soal kemana uang kas pergi.
+              KasRT membantu saya mengelola keuangan dengan lebih fleksibel.
             </p>
-            <div className="quote-author">— Bapak Hendra, Ketua RT 05</div>
+            <div className="quote-author">— Ibu Sudarsa, Ibu Rumah Tangga </div>
             <div>
               <span className="quote-tag">
                 <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
                   <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.2"/>
                   <path d="M5 3v2l1.5 1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                 </svg>
-                Pengguna aktif sejak 2024
+                Pengguna aktif sejak 2026
               </span>
             </div>
           </div>

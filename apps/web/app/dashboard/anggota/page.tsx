@@ -69,7 +69,7 @@ export default function AnggotaPage() {
     const [membRes, invRes] = await Promise.all([
       supabase
         .from('workspace_members')
-        .select('id, user_id, role, invited_at')
+        .select('id, user_id, role, joined_at')
         .eq('workspace_id', wsId),
       supabase
         .from('invitations')
@@ -99,7 +99,7 @@ export default function AnggotaPage() {
         member_id: m.id,
         user_id:   m.user_id,
         role:      m.role,
-        joined_at: m.invited_at || '',
+        joined_at: m.joined_at || '',
         full_name: profileMap[m.user_id]?.full_name || '',
         email:     profileMap[m.user_id]?.email || '',
       }))

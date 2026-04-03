@@ -172,7 +172,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const handleLogout = async () => {
     if (info?.sessionType === 'member') {
       await fetch('/api/member-logout', { method: 'POST', credentials: 'include' })
-      router.push('/')
+      router.push('/login/anggota')
     } else {
       const supabase = createClient()
       await supabase.auth.signOut()

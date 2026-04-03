@@ -21,14 +21,12 @@ type Invitation = {
 }
 
 const ROLE_LABEL: Record<string, string> = {
-  owner: 'Pemilik', admin: 'Admin', member: 'Anggota', viewer: 'Penonton',
+  owner: 'Pemilik', member: 'Anggota',
 }
 
 const ROLE_COLOR: Record<string, { bg: string; text: string; border: string }> = {
   owner:  { bg: '#f0fdf4', text: '#16a34a', border: '#bbf7d0' },
-  admin:  { bg: '#eff6ff', text: '#2563eb', border: '#bfdbfe' },
   member: { bg: '#f5f2eb', text: '#7a7469', border: '#d4cfc4' },
-  viewer: { bg: '#fefce8', text: '#ca8a04', border: '#fef08a' },
 }
 
 const fmt = (n: string) => new Date(n).toLocaleDateString('id-ID', {
@@ -51,7 +49,7 @@ export default function AnggotaPage() {
 
   const [showInvite, setShowInvite]   = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole]   = useState<'admin' | 'member' | 'viewer'>('member')
+  const [inviteRole, setInviteRole]   = useState<'member'>('member')
   const [inviting, setInviting]       = useState(false)
   const [inviteLink, setInviteLink]   = useState('')
   const [inviteError, setInviteError] = useState('')
@@ -170,7 +168,7 @@ export default function AnggotaPage() {
     setCopied(true); setTimeout(() => setCopied(false), 2000)
   }
 
-  const canManage = myRole === 'owner' || myRole === 'admin'
+  const canManage = myRole === 'owner'  // hanya owner yang bisa undang, kick, dll
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -219,24 +217,8 @@ export default function AnggotaPage() {
               placeholder="email@contoh.com — kosongkan untuk link universal"
               style={{ width:'100%', padding:'10px 14px', border:'1px solid #d4cfc4', borderRadius:10, fontSize:13, outline:'none', fontFamily:'inherit', boxSizing:'border-box', color:'#0f0e0c', background:'#fafaf8' }} />
           </div>
-          <div style={{ marginBottom:16 }}>
-            <label style={{ fontSize:11, fontWeight:600, color:'#7a7469', textTransform:'uppercase', letterSpacing:'0.07em', display:'block', marginBottom:8 }}>Role</label>
-            <div style={{ display:'flex', gap:8 }}>
-              {(['admin','member','viewer'] as const).map(r => (
-                <button key={r} onClick={() => setInviteRole(r)} className="btn-press" style={{
-                  flex:1, padding:'8px 0', borderRadius:10, fontSize:12.5, fontWeight:600,
-                  border:`1.5px solid ${inviteRole===r ? '#2d5a27' : '#d4cfc4'}`,
-                  background: inviteRole===r ? '#2d5a27' : '#fafaf8',
-                  color: inviteRole===r ? '#fff' : '#7a7469',
-                  cursor:'pointer', fontFamily:'inherit', transition:'all 0.15s',
-                }}>{ROLE_LABEL[r]}</button>
-              ))}
-            </div>
-            <p style={{ fontSize:11.5, color:'#7a7469', marginTop:8 }}>
-              {inviteRole==='admin'  && '✏️ Bisa tambah, edit, dan hapus transaksi & tagihan'}
-              {inviteRole==='member' && '📝 Bisa tambah transaksi, tidak bisa hapus'}
-              {inviteRole==='viewer' && '👁️ Hanya bisa lihat data, tidak bisa edit'}
-            </p>
+          <div style={{ background:'#f5f2eb', borderRadius:10, padding:'10px 14px', marginBottom:16 }}>
+            <p style={{ fontSize:12.5, color:'#7a7469', margin:0 }}>📝 Anggota yang diundang bisa <strong>melihat dan menambah transaksi</strong>, tapi tidak bisa menghapus atau mengubah data.</p>
           </div>
           {inviteError && <p style={{ fontSize:12, color:'#dc2626', background:'#fef2f2', padding:'8px 12px', borderRadius:8, marginBottom:12 }}>{inviteError}</p>}
           {inviteLink && (
@@ -343,26 +325,19 @@ export default function AnggotaPage() {
                 {m.joined_at && <p style={{ fontSize:11, color:'#a8a39a', margin:'2px 0 0' }}>Bergabung {fmt(m.joined_at)}</p>}
               </div>
 
-              {canManage && m.role !== 'owner' && !isMe ? (
-                <select value={m.role} onChange={e => handleUpdateRole(m.member_id, m.user_id, e.target.value)}
-                  disabled={updatingId === m.member_id}
-                  style={{ fontSize:12, fontWeight:600, padding:'5px 10px', borderRadius:8, border:`1.5px solid ${rc.border}`, background:rc.bg, color:rc.text, cursor:'pointer', outline:'none', fontFamily:'inherit', opacity: updatingId===m.member_id ? 0.5 : 1 }}>
-                  <option value="admin">Admin</option>
-                  <option value="member">Anggota</option>
-                  <option value="viewer">Penonton</option>
-                </select>
-              ) : (
-                <span style={{ fontSize:12, fontWeight:600, padding:'5px 10px', borderRadius:8, border:`1.5px solid ${rc.border}`, background:rc.bg, color:rc.text, whiteSpace:'nowrap' }}>
-                  {ROLE_LABEL[m.role]}
-                </span>
-              )}
+              {/* Badge role — statis, tidak ada dropdown karena hanya 2 role */}
+              <span style={{ fontSize:12, fontWeight:600, padding:'5px 10px', borderRadius:8, border:`1.5px solid ${rc.border}`, background:rc.bg, color:rc.text, whiteSpace:'nowrap' }}>
+                {ROLE_LABEL[m.role] || m.role}
+              </span>
 
+              {/* Tombol kick — hanya owner/admin, tidak bisa kick diri sendiri */}
               {canManage && m.role !== 'owner' && !isMe && (
                 <button onClick={() => setKickId(m.member_id)} className="btn-press" title="Keluarkan" style={{
                   width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center',
                   border:'none', background:'transparent', cursor:'pointer', borderRadius:8, color:'#c4bfb8', fontSize:14,
                 }}>✕</button>
               )}
+              {/* Tombol keluar — hanya untuk diri sendiri, bukan viewer (viewer pasif) */}
               {isMe && m.role !== 'owner' && (
                 <button onClick={() => setKickId(m.member_id)} className="btn-press" style={{
                   fontSize:12, padding:'5px 12px', border:'1px solid #fecaca', borderRadius:8,

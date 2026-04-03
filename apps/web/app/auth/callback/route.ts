@@ -12,10 +12,11 @@ export async function GET(request: Request) {
     if (!error) {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
-        // Cek apakah punya workspace sebagai owner
+        // Login Google = jalur owner saja
+        // Kalau tidak punya workspace sebagai owner (termasuk yang cuma jadi anggota) → setup
         const { data: ownerMember } = await supabase
           .from('workspace_members')
-          .select('workspace_id, role')
+          .select('workspace_id')
           .eq('user_id', user.id)
           .eq('role', 'owner')
           .limit(1)
@@ -25,20 +26,6 @@ export async function GET(request: Request) {
           return NextResponse.redirect(`${origin}/dashboard`)
         }
 
-        // Cek apakah jadi anggota di workspace lain
-        const { data: anyMember } = await supabase
-          .from('workspace_members')
-          .select('workspace_id')
-          .eq('user_id', user.id)
-          .limit(1)
-          .maybeSingle()
-
-        if (anyMember?.workspace_id) {
-          // Anggota di workspace lain → dashboard (layout handle selanjutnya)
-          return NextResponse.redirect(`${origin}/dashboard`)
-        }
-
-        // Belum punya workspace sama sekali → setup
         return NextResponse.redirect(`${origin}/setup`)
       }
     }

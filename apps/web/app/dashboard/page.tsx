@@ -4,37 +4,31 @@ import { redirect } from 'next/navigation'
 export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
-  // Cek workspace sebagai owner dulu
-  const { data: ownerMemberships } = await supabase
+  // Kalau tidak ada Supabase Auth user, mungkin ini member session
+  // Biarkan layout.tsx yang handle — page ini hanya render konten
+  if (!user) {
+    // Render placeholder — layout sudah validasi member_session
+    return <MemberDashboardPlaceholder />
+  }
+
+  // User login Google → hanya tampilkan workspace milik sendiri (owner)
+  const { data: memberships } = await supabase
     .from('workspace_members')
     .select('workspace_id, role, workspaces(id, name, type)')
     .eq('user_id', user.id)
     .eq('role', 'owner')
     .limit(1)
 
-  let workspace = ownerMemberships?.[0] ? (ownerMemberships[0] as any).workspaces : null
+  if (!memberships || memberships.length === 0) redirect('/setup')
 
-  // Kalau bukan owner, cek apakah jadi anggota di workspace lain
-  if (!workspace) {
-    const { data: memberMemberships } = await supabase
-      .from('workspace_members')
-      .select('workspace_id, role, workspaces(id, name, type)')
-      .eq('user_id', user.id)
-      .limit(1)
-
-    workspace = memberMemberships?.[0] ? (memberMemberships[0] as any).workspaces : null
-  }
-
-  // Belum punya workspace sama sekali → setup
+  const workspace = (memberships[0] as any).workspaces
   if (!workspace) redirect('/setup')
 
   const now      = new Date()
   const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
   const lastDay  = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]
 
-  // ── Semua query jalan paralel, bukan berurutan ──
   const [
     { data: transactions },
     { data: unpaidBills, count: unpaidCount },
@@ -77,8 +71,6 @@ export default async function DashboardPage() {
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto' }}>
-
-      {/* Page header */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 10.5, fontWeight: 600, color: '#8B7E6E', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
           {typeLabel[workspace.type] || workspace.type}
@@ -89,7 +81,6 @@ export default async function DashboardPage() {
         <p style={{ fontSize: 12, color: '#8B7E6E', margin: 0 }}>Ringkasan {bulan}</p>
       </div>
 
-      {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 14 }}>
         <div style={card}>
           <div style={{ fontSize: 11, fontWeight: 500, color: '#8B7E6E', marginBottom: 6 }}>Saldo Bulan Ini</div>
@@ -100,7 +91,6 @@ export default async function DashboardPage() {
             {balance >= 0 ? '↑ Surplus' : '↓ Defisit'}
           </span>
         </div>
-
         <div style={card}>
           <div style={{ fontSize: 11, fontWeight: 500, color: '#8B7E6E', marginBottom: 6 }}>Total Pemasukan</div>
           <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.3px', color: '#15803D' }}>{fmt(totalIncome)}</div>
@@ -108,7 +98,6 @@ export default async function DashboardPage() {
             {incomeCount} transaksi
           </span>
         </div>
-
         <div style={card}>
           <div style={{ fontSize: 11, fontWeight: 500, color: '#8B7E6E', marginBottom: 6 }}>Total Pengeluaran</div>
           <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.3px', color: '#DC2626' }}>{fmt(totalExpense)}</div>
@@ -118,10 +107,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Bills + Transactions */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-
-        {/* Tagihan */}
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <h3 style={{ fontSize: 12.5, fontWeight: 600, color: '#1A1A18', margin: 0 }}>Tagihan Belum Dibayar</h3>
@@ -131,7 +117,6 @@ export default async function DashboardPage() {
               </span>
             ) : null}
           </div>
-
           {!unpaidBills || unpaidBills.length === 0 ? (
             <p style={{ fontSize: 12, color: '#8B7E6E', margin: '0 0 12px' }}>Semua tagihan sudah lunas ✅</p>
           ) : (
@@ -152,28 +137,20 @@ export default async function DashboardPage() {
               ))}
             </div>
           )}
-
           <a href="/dashboard/tagihan" style={{ display: 'block', textAlign: 'center', fontSize: 11.5, fontWeight: 500, color: ACCENT, textDecoration: 'none', marginTop: 4 }}>
             Lihat semua tagihan →
           </a>
         </div>
 
-        {/* Transaksi terbaru */}
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <h3 style={{ fontSize: 12.5, fontWeight: 600, color: '#1A1A18', margin: 0 }}>Transaksi Terbaru</h3>
-            <a href="/dashboard/transaksi" style={{ fontSize: 11, fontWeight: 500, color: ACCENT, textDecoration: 'none' }}>
-              Lihat semua
-            </a>
+            <a href="/dashboard/transaksi" style={{ fontSize: 11, fontWeight: 500, color: ACCENT, textDecoration: 'none' }}>Lihat semua</a>
           </div>
-
           {!recentTransactions || recentTransactions.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '16px 0' }}>
               <p style={{ fontSize: 12, color: '#8B7E6E', margin: '0 0 12px' }}>Belum ada transaksi bulan ini</p>
-              <a
-                href="/dashboard/transaksi/baru"
-                style={{ display: 'inline-block', fontSize: 12, fontWeight: 500, color: '#fff', padding: '7px 16px', borderRadius: 8, background: ACCENT, textDecoration: 'none' }}
-              >
+              <a href="/dashboard/transaksi/baru" style={{ display: 'inline-block', fontSize: 12, fontWeight: 500, color: '#fff', padding: '7px 16px', borderRadius: 8, background: ACCENT, textDecoration: 'none' }}>
                 + Tambah Transaksi
               </a>
             </div>
@@ -205,27 +182,45 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Quick actions */}
       <div style={card}>
         <h3 style={{ fontSize: 12.5, fontWeight: 600, color: '#1A1A18', margin: '0 0 12px' }}>Aksi Cepat</h3>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {[
-            { href: '/dashboard/transaksi/baru?type=income',  label: '+ Catat Pemasukan',   bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
-            { href: '/dashboard/transaksi/baru?type=expense', label: '− Catat Pengeluaran',  bg: '#FEF2F2', color: '#DC2626', border: '#FECACA' },
-            { href: '/dashboard/tagihan/baru',                label: '📋 Tambah Tagihan',    bg: '#F5F0EA', color: '#3d3a35', border: '#D4CFC4' },
-            { href: '/dashboard/laporan',                     label: '📊 Lihat Laporan',     bg: '#F5F0EA', color: '#3d3a35', border: '#D4CFC4' },
+            { href: '/dashboard/transaksi/baru?type=income',  label: '+ Catat Pemasukan',  bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
+            { href: '/dashboard/transaksi/baru?type=expense', label: '− Catat Pengeluaran', bg: '#FEF2F2', color: '#DC2626', border: '#FECACA' },
+            { href: '/dashboard/tagihan/baru',                label: '📋 Tambah Tagihan',   bg: '#F5F0EA', color: '#3d3a35', border: '#D4CFC4' },
+            { href: '/dashboard/laporan',                     label: '📊 Lihat Laporan',    bg: '#F5F0EA', color: '#3d3a35', border: '#D4CFC4' },
           ].map(a => (
-            <a
-              key={a.href}
-              href={a.href}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 8, fontSize: 11.5, fontWeight: 500, textDecoration: 'none', background: a.bg, color: a.color, border: `1px solid ${a.border}` }}
-            >
+            <a key={a.href} href={a.href} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 8, fontSize: 11.5, fontWeight: 500, textDecoration: 'none', background: a.bg, color: a.color, border: `1px solid ${a.border}` }}>
               {a.label}
             </a>
           ))}
         </div>
       </div>
+    </div>
+  )
+}
 
+// Placeholder untuk member yang login pakai kode (tidak punya Supabase Auth)
+// Layout sudah validasi session — ini hanya tampilan sementara sebelum member-specific page dimuat
+function MemberDashboardPlaceholder() {
+  const ACCENT = '#7AAACE'
+  return (
+    <div style={{ maxWidth: 860, margin: '0 auto' }}>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 600, color: '#1A1A18', letterSpacing: '-0.4px', margin: '3px 0 4px' }}>
+          Dashboard Anggota
+        </h2>
+        <p style={{ fontSize: 12, color: '#8B7E6E', margin: 0 }}>Kamu masuk sebagai anggota workspace.</p>
+      </div>
+      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8E0D4', padding: '24px', textAlign: 'center' }}>
+        <p style={{ fontSize: 14, color: '#8B7E6E', margin: '0 0 16px' }}>
+          Gunakan menu di sidebar untuk melihat transaksi, tagihan, dan laporan workspace kamu.
+        </p>
+        <a href="/dashboard/transaksi" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 18px', borderRadius: 8, fontSize: 13, fontWeight: 500, textDecoration: 'none', background: ACCENT, color: '#fff' }}>
+          Lihat Transaksi →
+        </a>
+      </div>
     </div>
   )
 }

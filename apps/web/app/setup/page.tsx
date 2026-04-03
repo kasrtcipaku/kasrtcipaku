@@ -51,12 +51,13 @@ export default function SetupPage() {
     const supabase = createClient()
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) { router.push('/login'); return }
-      const { data } = await supabase
-        .from('workspace_members')
-        .select('id')
-        .eq('user_id', user.id)
+      // Gunakan query ke workspaces via join agar tidak memicu RLS recursion di workspace_members
+      const { data, error } = await supabase
+        .from('workspaces')
+        .select('id, workspace_members!inner(user_id)')
+        .eq('workspace_members.user_id', user.id)
         .limit(1)
-      if (data?.length) router.push('/dashboard')
+      if (!error && data?.length) router.push('/dashboard')
     })
   }, [])
 
@@ -137,9 +138,9 @@ export default function SetupPage() {
   const selectedType = TYPE_OPTIONS.find(t => t.value === wsType)
 
   return (
-    <div style={{
+    <div className="setup-outer" style={{
       minHeight: '100vh', background: '#FAFAF9',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
       padding: '24px 16px', fontFamily: 'DM Sans, system-ui, sans-serif',
     }}>
       <style>{`
@@ -154,12 +155,17 @@ export default function SetupPage() {
         .cat-chip { transition: all 0.15s; cursor: pointer; }
         .cat-chip:hover { opacity: 0.8; }
         input:focus { outline: none; border-color: #aac8e0 !important; }
+        .setup-card::-webkit-scrollbar { width: 4px; }
+        .setup-card::-webkit-scrollbar-track { background: transparent; }
+        .setup-card::-webkit-scrollbar-thumb { background: #E3DED6; border-radius: 4px; }
+        @media (min-height: 700px) { .setup-outer { align-items: center !important; } }
       `}</style>
 
-      <div className="fade-up" style={{
+      <div className="fade-up setup-card" style={{
         background: '#fff', borderRadius: 20, border: '1px solid #E3DED6',
         padding: '36px 32px', width: '100%', maxWidth: 480,
         boxShadow: '0 4px 24px rgba(0,0,0,0.06)',
+        maxHeight: 'calc(100vh - 48px)', overflowY: 'auto',
       }}>
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28 }}>

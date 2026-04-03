@@ -10,6 +10,7 @@ type Member = {
   joined_at: string
   full_name: string
   email: string
+  member_code: string | null
 }
 
 type Invitation = {
@@ -54,6 +55,7 @@ export default function AnggotaPage() {
   const [inviteLink, setInviteLink]   = useState('')
   const [inviteError, setInviteError] = useState('')
   const [copied, setCopied]           = useState(false)
+  const [copiedCode, setCopiedCode]   = useState<string | null>(null)
 
   const [updatingId, setUpdatingId]   = useState<string | null>(null)
   const [kickId, setKickId]           = useState<string | null>(null)
@@ -67,7 +69,7 @@ export default function AnggotaPage() {
     const [membRes, invRes] = await Promise.all([
       supabase
         .from('workspace_members')
-        .select('id, user_id, role, joined_at')
+        .select('id, user_id, role, joined_at, member_code')
         .eq('workspace_id', wsId),
       supabase
         .from('invitations')
@@ -94,12 +96,13 @@ export default function AnggotaPage() {
 
     setMembers(
       rawMembers.map((m: any) => ({
-        member_id: m.id,
-        user_id:   m.user_id,
-        role:      m.role,
-        joined_at: m.joined_at || '',
-        full_name: profileMap[m.user_id]?.full_name || '',
-        email:     profileMap[m.user_id]?.email || '',
+        member_id:   m.id,
+        user_id:     m.user_id,
+        role:        m.role,
+        joined_at:   m.joined_at || '',
+        full_name:   profileMap[m.user_id]?.full_name || '',
+        email:       profileMap[m.user_id]?.email || '',
+        member_code: m.member_code || null,
       }))
     )
     setInvitations((invRes.data as Invitation[]) || [])
@@ -168,6 +171,11 @@ export default function AnggotaPage() {
     setCopied(true); setTimeout(() => setCopied(false), 2000)
   }
 
+  const copyCode = (code: string) => {
+    navigator.clipboard.writeText(code)
+    setCopiedCode(code); setTimeout(() => setCopiedCode(null), 2000)
+  }
+
   const canManage = myRole === 'owner'  // hanya owner yang bisa undang, kick, dll
 
   return (
@@ -177,9 +185,11 @@ export default function AnggotaPage() {
         @keyframes fadeUp    { from{opacity:0;transform:translateY(8px)}  to{opacity:1;transform:none} }
         @keyframes scaleIn   { from{opacity:0;transform:scale(0.95)}      to{opacity:1;transform:scale(1)} }
         @keyframes shimmer   { 0%{background-position:-400px 0} 100%{background-position:400px 0} }
+        @keyframes codePop   { from{opacity:0;transform:scale(0.85)} to{opacity:1;transform:scale(1)} }
         .slide-down { animation: slideDown 0.28s cubic-bezier(0.22,1,0.36,1) forwards; }
         .fade-up    { animation: fadeUp 0.3s ease forwards; }
         .scale-in   { animation: scaleIn 0.3s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+        .code-pop   { animation: codePop 0.25s cubic-bezier(0.34,1.56,0.64,1) forwards; }
         .shimmer {
           background: linear-gradient(90deg,#ede9e0 25%,#f5f2eb 50%,#ede9e0 75%);
           background-size: 400px 100%;
@@ -188,6 +198,9 @@ export default function AnggotaPage() {
         .btn-press:active { transform: scale(0.93); }
         .btn-press { transition: transform 0.12s; }
         .member-row:hover { background: #fdfcfa; }
+        .code-badge { display:inline-flex; align-items:center; gap:6px; background:#f5f2eb; border:1.5px solid #d4cfc4; border-radius:8px; padding:5px 10px; font-family:'DM Mono',monospace; font-size:12px; font-weight:600; color:#3d3a35; cursor:pointer; transition:all 0.15s; }
+        .code-badge:hover { background:#edeae0; border-color:#b8b4a8; }
+        .code-badge.copied { background:#f0fdf4; border-color:#bbf7d0; color:#16a34a; }
       `}</style>
 
       {/* Header */}
@@ -198,13 +211,24 @@ export default function AnggotaPage() {
             {loading ? 'Memuat...' : `${members.length} anggota aktif`}
           </p>
         </div>
-        {canManage && (
-          <button onClick={() => { setShowInvite(!showInvite); setInviteLink(''); setInviteError('') }}
-            className="btn-press"
-            style={{ display:'flex', alignItems:'center', gap:6, padding:'9px 16px', background:'#2d5a27', color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
-            <span style={{ fontSize:16 }}>+</span> Undang Anggota
-          </button>
-        )}
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          {!loading && members.some(m => m.role === 'member' && m.member_code) && (
+            <div style={{ display:'flex', alignItems:'center', gap:5, background:'#f5f2eb', border:'1px solid #d4cfc4', borderRadius:10, padding:'6px 12px' }}>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ color:'#7a7469', flexShrink:0 }}>
+                <rect x="1" y="3" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+                <path d="M4 3V2a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              </svg>
+              <span style={{ fontSize:11.5, color:'#7a7469', fontWeight:600, fontFamily:'monospace' }}>Kode = login anggota</span>
+            </div>
+          )}
+          {canManage && (
+            <button onClick={() => { setShowInvite(!showInvite); setInviteLink(''); setInviteError('') }}
+              className="btn-press"
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'9px 16px', background:'#2d5a27', color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
+              <span style={{ fontSize:16 }}>+</span> Undang Anggota
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Form Undang */}
@@ -323,6 +347,21 @@ export default function AnggotaPage() {
                 </div>
                 <p style={{ fontSize:12, color:'#7a7469', margin:'2px 0 0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.email || <span style={{color:'#c4bfb8',fontStyle:'italic'}}>Email tidak tersedia</span>}</p>
                 {m.joined_at && <p style={{ fontSize:11, color:'#a8a39a', margin:'2px 0 0' }}>Bergabung {fmt(m.joined_at)}</p>}
+                {m.role === 'member' && m.member_code && (
+                  <div style={{ marginTop:5 }}>
+                    <button
+                      onClick={() => copyCode(m.member_code!)}
+                      className={`code-badge code-pop${copiedCode === m.member_code ? ' copied' : ''}`}
+                      title="Klik untuk salin kode"
+                    >
+                      <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+                        <rect x="1" y="3" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+                        <path d="M4 3V2a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                      </svg>
+                      {copiedCode === m.member_code ? '✓ Tersalin' : m.member_code}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Badge role — statis, tidak ada dropdown karena hanya 2 role */}

@@ -44,7 +44,6 @@ export default function NewTransactionPage() {
   )
   const [amount,      setAmount]      = useState('')
   const [date,        setDate]        = useState(today())
-  const [ref,         setRef]         = useState('')
   const [categoryId,  setCategoryId]  = useState<string | null>(null)
   const [description, setDesc]        = useState('')
   const [note,        setNote]        = useState('')
@@ -75,7 +74,6 @@ export default function NewTransactionPage() {
       const member      = memberships[0] as any
       const ws          = member.workspaces
       const workspaceId: string = member.workspace_id
-
       setWorkspace({ ...ws, id: workspaceId })
 
       const { data: cats, error: catErr } = await supabase
@@ -86,23 +84,16 @@ export default function NewTransactionPage() {
         .order('name', { ascending: true })
 
       if (catErr) {
-        const { data: catsFallback, error: catErrFallback } = await supabase
+        const { data: catsFallback } = await supabase
           .from('categories')
           .select('id, name, icon, type')
           .eq('workspace_id', workspaceId)
           .order('name', { ascending: true })
-
-        if (catErrFallback) {
-          setLoadError('Gagal memuat kategori: ' + catErrFallback.message)
-          setLoading(false)
-          return
-        }
         setDbCategories((catsFallback as DbCategory[]) ?? [])
-        setLoading(false)
-        return
+      } else {
+        setDbCategories((cats as DbCategory[]) ?? [])
       }
 
-      setDbCategories((cats as DbCategory[]) ?? [])
       setLoading(false)
     })()
   }, [])
@@ -123,31 +114,36 @@ export default function NewTransactionPage() {
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
+    // Upload lampiran kalau ada
     let attachmentUrl: string | null = null
     if (file) {
-      const path = `${workspace.id}/${Date.now()}_${file.name}`
-      const { data: uploaded } = await supabase.storage
+      const ext  = file.name.split('.').pop()
+      const path = `${workspace.id}/${Date.now()}.${ext}`
+      const { data: uploaded, error: upErr } = await supabase.storage
         .from('transaction-attachments')
         .upload(path, file)
-      if (uploaded) {
-        const { data: { publicUrl } } = supabase.storage
-          .from('transaction-attachments')
-          .getPublicUrl(uploaded.path)
-        attachmentUrl = publicUrl
+      if (upErr) {
+        setError('Gagal upload lampiran: ' + upErr.message)
+        setSubmitting(false)
+        return
       }
+      const { data: { publicUrl } } = supabase.storage
+        .from('transaction-attachments')
+        .getPublicUrl(uploaded.path)
+      attachmentUrl = publicUrl
     }
 
     const { error: insertError } = await supabase.from('transactions').insert({
       workspace_id:   workspace.id,
-      user_id:        user!.id,
+      created_by:     user!.id,
       type,
       amount:         parseAmount(amount),
       date,
       description:    description.trim(),
       note:           note.trim() || null,
       category_id:    categoryId,
-      reference:      ref.trim() || null,
       attachment_url: attachmentUrl,
+      source:         'web',
     })
 
     if (insertError) {
@@ -213,6 +209,7 @@ export default function NewTransactionPage() {
       `}</style>
 
       <div style={{ maxWidth: 620, margin: '0 auto', fontFamily: 'DM Sans, system-ui, sans-serif' }}>
+
         {/* Header */}
         <div style={{ marginBottom: 22 }}>
           <button onClick={() => router.back()} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 500, color: '#8B7E6E', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit', marginBottom: 12 }}>
@@ -228,7 +225,7 @@ export default function NewTransactionPage() {
           <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: '#FEF2F2', border: '1px solid #FECACA', fontSize: 12.5, color: '#DC2626' }}>{error}</div>
         )}
 
-        {/* Jenis + Jumlah */}
+        {/* Jenis + Jumlah + Tanggal */}
         <div style={card}>
           <p style={{ ...sectionTitle, marginBottom: 14 }}>Jenis Transaksi</p>
           <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
@@ -251,21 +248,14 @@ export default function NewTransactionPage() {
                 placeholder="0" value={amount} onChange={e => setAmount(displayAmount(e.target.value))} inputMode="numeric" />
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div>
-              <label style={fieldLabel}>Tanggal <span style={{ color: '#DC2626' }}>*</span></label>
-              <input className="kbn-input" style={inputBase} type="date" value={date} onChange={e => setDate(e.target.value)} />
-            </div>
-            <div>
-              <label style={fieldLabel}>No. Referensi</label>
-              <input className="kbn-input" style={inputBase} placeholder="Opsional" value={ref} onChange={e => setRef(e.target.value)} />
-            </div>
+          <div>
+            <label style={fieldLabel}>Tanggal <span style={{ color: '#DC2626' }}>*</span></label>
+            <input className="kbn-input" style={inputBase} type="date" value={date} onChange={e => setDate(e.target.value)} />
           </div>
         </div>
 
         {/* Kategori */}
         <div style={card}>
-          {/* Header: judul + tombol Kelola Kategori — SELALU tampil, bukan hanya saat kosong */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <p style={sectionTitle}>
               Kategori <span style={{ color: '#DC2626' }}>*</span>
@@ -273,30 +263,19 @@ export default function NewTransactionPage() {
                 ({filteredCats.length} tersedia)
               </span>
             </p>
-            <a
-              href="/dashboard/kategori"
-              className="manage-cat-link"
-              style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                fontSize: 11, fontWeight: 600, color: SB,
-                textDecoration: 'none', padding: '4px 8px',
-                borderRadius: 6, background: '#F0F6FB',
-                border: '1px solid #C8DFF0', whiteSpace: 'nowrap',
-                transition: 'background 0.12s, color 0.12s',
-              }}>
+            <a href="/dashboard/kategori" className="manage-cat-link"
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: SB, textDecoration: 'none', padding: '4px 8px', borderRadius: 6, background: '#F0F6FB', border: '1px solid #C8DFF0', whiteSpace: 'nowrap', transition: 'background 0.12s, color 0.12s' }}>
               <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
                 <path d="M1 6h10M6 1l5 5-5 5" stroke={SB} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
               Kelola Kategori
             </a>
           </div>
-
           {filteredCats.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '20px 0' }}>
               <div style={{ fontSize: 28, marginBottom: 8 }}>{isIncome ? '💰' : '💸'}</div>
               <p style={{ fontSize: 12.5, color: '#8B7E6E', margin: 0 }}>
-                Belum ada kategori {isIncome ? 'pemasukan' : 'pengeluaran'} aktif.<br/>
-                <span style={{ fontSize: 11.5, color: '#B0A89A' }}>Tambah atau aktifkan lewat tombol di atas.</span>
+                Belum ada kategori {isIncome ? 'pemasukan' : 'pengeluaran'} aktif.
               </p>
             </div>
           ) : (
@@ -326,22 +305,47 @@ export default function NewTransactionPage() {
               value={description} onChange={e => setDesc(e.target.value)} />
           </div>
           <div style={{ marginBottom: 14 }}>
-            <label style={fieldLabel}>Catatan</label>
+            <label style={fieldLabel}>Catatan <span style={{ fontSize: 10.5, color: '#B0A89A', fontWeight: 400 }}>(opsional)</span></label>
             <textarea className="kbn-input" style={{ ...inputBase, resize: 'vertical', minHeight: 70 }}
               placeholder="Tambahkan catatan tambahan jika diperlukan..."
               value={note} onChange={e => setNote(e.target.value)} />
           </div>
           <div>
-            <label style={fieldLabel}>Lampiran Bukti</label>
-            <div onClick={() => fileRef.current?.click()} onMouseEnter={() => setHoverFile(true)} onMouseLeave={() => setHoverFile(false)}
+            <label style={fieldLabel}>Lampiran Bukti <span style={{ fontSize: 10.5, color: '#B0A89A', fontWeight: 400 }}>(opsional)</span></label>
+            <div
+              onClick={() => fileRef.current?.click()}
+              onMouseEnter={() => setHoverFile(true)}
+              onMouseLeave={() => setHoverFile(false)}
               style={{ border: `1.5px dashed ${hoverFile ? SB : '#D4CFC4'}`, borderRadius: 8, padding: '16px', textAlign: 'center', cursor: 'pointer', background: hoverFile ? '#EBF4FB' : '#FAFAF9', transition: 'border-color 0.12s, background 0.12s' }}>
               {file ? (
-                <><div style={{ fontSize: 18, marginBottom: 4 }}>📎</div><div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A18' }}>{file.name}</div><div style={{ fontSize: 10.5, color: '#8B7E6E', marginTop: 2 }}>{(file.size / 1024).toFixed(0)} KB — klik untuk ganti</div></>
+                <>
+                  <div style={{ fontSize: 18, marginBottom: 4 }}>📎</div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A18' }}>{file.name}</div>
+                  <div style={{ fontSize: 10.5, color: '#8B7E6E', marginTop: 2 }}>{(file.size / 1024).toFixed(0)} KB — klik untuk ganti</div>
+                </>
               ) : (
-                <><div style={{ fontSize: 20, marginBottom: 4 }}>📎</div><div style={{ fontSize: 12, fontWeight: 500, color: '#5C5650' }}>Klik untuk unggah</div><div style={{ fontSize: 10.5, color: '#8B7E6E', marginTop: 2 }}>JPG, PNG, PDF — maks. 5 MB</div></>
+                <>
+                  <div style={{ fontSize: 20, marginBottom: 4 }}>📎</div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#5C5650' }}>Klik untuk unggah</div>
+                  <div style={{ fontSize: 10.5, color: '#8B7E6E', marginTop: 2 }}>Gambar maks. 100 KB · PDF maks. 300 KB</div>
+                </>
               )}
             </div>
-            <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={e => setFile(e.target.files?.[0] ?? null)} />
+            <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }}
+              onChange={e => {
+                const f = e.target.files?.[0]
+                if (!f) return
+                const isPdf    = f.type === 'application/pdf'
+                const maxBytes = isPdf ? 300 * 1024 : 100 * 1024
+                const maxLabel = isPdf ? '300 KB' : '100 KB'
+                if (f.size > maxBytes) {
+                  setError(`Ukuran file terlalu besar. Maksimal ${maxLabel} untuk ${isPdf ? 'PDF' : 'gambar'}.`)
+                  e.target.value = ''
+                  return
+                }
+                setError(null)
+                setFile(f)
+              }} />
           </div>
         </div>
 
@@ -367,7 +371,9 @@ export default function NewTransactionPage() {
           </button>
           <button onClick={handleSubmit} disabled={submitting} onMouseEnter={() => setHoverSubmit(true)} onMouseLeave={() => setHoverSubmit(false)}
             style={{ flex: 2, padding: '11px', borderRadius: 9, border: 'none', background: submitting ? '#9C9892' : isIncome ? (hoverSubmit ? '#15803D' : '#16A34A') : (hoverSubmit ? '#B91C1C' : '#DC2626'), color: '#fff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: submitting ? 'not-allowed' : 'pointer', transition: 'background 0.12s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            {submitting ? (<><svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ animation: 'spin 1s linear infinite' }}><circle cx="7" cy="7" r="5.5" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5"/><path d="M7 1.5A5.5 5.5 0 0 1 12.5 7" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/></svg>Menyimpan...</>) : `Simpan ${isIncome ? 'Pemasukan' : 'Pengeluaran'}`}
+            {submitting
+              ? (<><svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ animation: 'spin 1s linear infinite' }}><circle cx="7" cy="7" r="5.5" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5"/><path d="M7 1.5A5.5 5.5 0 0 1 12.5 7" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/></svg>Menyimpan...</>)
+              : `Simpan ${isIncome ? 'Pemasukan' : 'Pengeluaran'}`}
           </button>
         </div>
       </div>

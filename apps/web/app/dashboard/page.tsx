@@ -6,16 +6,28 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: memberships } = await supabase
+  // Cek workspace sebagai owner dulu
+  const { data: ownerMemberships } = await supabase
     .from('workspace_members')
     .select('workspace_id, role, workspaces(id, name, type)')
     .eq('user_id', user.id)
     .eq('role', 'owner')
     .limit(1)
 
-  if (!memberships || memberships.length === 0) redirect('/setup')
+  let workspace = ownerMemberships?.[0] ? (ownerMemberships[0] as any).workspaces : null
 
-  const workspace = (memberships[0] as any).workspaces
+  // Kalau bukan owner, cek apakah jadi anggota di workspace lain
+  if (!workspace) {
+    const { data: memberMemberships } = await supabase
+      .from('workspace_members')
+      .select('workspace_id, role, workspaces(id, name, type)')
+      .eq('user_id', user.id)
+      .limit(1)
+
+    workspace = memberMemberships?.[0] ? (memberMemberships[0] as any).workspaces : null
+  }
+
+  // Belum punya workspace sama sekali → setup
   if (!workspace) redirect('/setup')
 
   const now      = new Date()

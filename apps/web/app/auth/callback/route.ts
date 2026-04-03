@@ -12,7 +12,8 @@ export async function GET(request: Request) {
     if (!error) {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
-        const { data: member } = await supabase
+        // Cek apakah punya workspace sebagai owner
+        const { data: ownerMember } = await supabase
           .from('workspace_members')
           .select('workspace_id, role')
           .eq('user_id', user.id)
@@ -20,8 +21,25 @@ export async function GET(request: Request) {
           .limit(1)
           .maybeSingle()
 
-        const redirectTo = member?.workspace_id ? '/dashboard' : '/setup'
-        return NextResponse.redirect(`${origin}${redirectTo}`)
+        if (ownerMember?.workspace_id) {
+          return NextResponse.redirect(`${origin}/dashboard`)
+        }
+
+        // Cek apakah jadi anggota di workspace lain
+        const { data: anyMember } = await supabase
+          .from('workspace_members')
+          .select('workspace_id')
+          .eq('user_id', user.id)
+          .limit(1)
+          .maybeSingle()
+
+        if (anyMember?.workspace_id) {
+          // Anggota di workspace lain → dashboard (layout handle selanjutnya)
+          return NextResponse.redirect(`${origin}/dashboard`)
+        }
+
+        // Belum punya workspace sama sekali → setup
+        return NextResponse.redirect(`${origin}/setup`)
       }
     }
   }

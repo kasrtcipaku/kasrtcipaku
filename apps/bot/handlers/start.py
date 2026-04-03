@@ -163,3 +163,29 @@ async def cmd_lunas(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+async def cmd_putuskan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    link    = get_workspace_by_telegram(chat_id)
+
+    if not link:
+        await update.message.reply_text(
+            "⚠️ Bot ini belum terhubung ke workspace manapun."
+        )
+        return
+
+    ws_name = link["workspaces"]["name"]
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Ya, putuskan", callback_data=f"putuskan:{chat_id}"),
+        InlineKeyboardButton("❌ Batal",        callback_data="cancel"),
+    ]])
+
+    await update.message.reply_text(
+        f"⚠️ *Putuskan koneksi bot dari workspace?*\n\n"
+        f"Workspace: *{ws_name}*\n\n"
+        f"Setelah diputus, bot tidak bisa lagi mencatat transaksi "
+        f"ke workspace ini. Kamu bisa hubungkan ulang kapan saja dengan /hubungkan.",
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )

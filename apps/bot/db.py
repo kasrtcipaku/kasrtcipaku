@@ -204,6 +204,11 @@ def mark_bill_paid(bill_id: str):
     if not res.data:
         raise Exception(f"Bill {bill_id} tidak ditemukan atau tidak bisa diupdate")
 
+def disconnect_telegram(telegram_chat_id: int):
+    """Putuskan koneksi bot dari workspace."""
+    db = get_db()
+    db.table("telegram_links").delete().eq("telegram_chat_id", telegram_chat_id).execute()
+
 def save_telegram_link(telegram_id: int, workspace_id: str, user_id: str):
     """Simpan link telegram ↔ workspace."""
     db = get_db()

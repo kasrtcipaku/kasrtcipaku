@@ -2,7 +2,7 @@
 import logging
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
-from db import insert_transaction, fmt_rupiah, mark_bill_paid
+from db import insert_transaction, fmt_rupiah, mark_bill_paid, disconnect_telegram
 from handlers.messages import get_pending
 
 logger = logging.getLogger(__name__)
@@ -70,5 +70,21 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Lunas error: {e}")
             await query.edit_message_text(
                 "Gagal menandai lunas. Coba lagi."
+            )
+        return
+
+    # ── Putuskan koneksi workspace ────────────────────────────────
+    if data.startswith("putuskan:"):
+        chat_id_to_disconnect = int(data[9:])
+        try:
+            disconnect_telegram(chat_id_to_disconnect)
+            await query.edit_message_text(
+                "✅ Bot berhasil diputus dari workspace.\n\n"
+                "Ketik /hubungkan untuk menghubungkan ke workspace lain."
+            )
+        except Exception as e:
+            logger.error(f"Putuskan error: {e}")
+            await query.edit_message_text(
+                "Gagal memutus koneksi. Coba lagi nanti."
             )
         return

@@ -10,17 +10,24 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!error) {
-      // Cek apakah user sudah punya workspace
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
         const { data: member } = await supabase
           .from('workspace_members')
-          .select('workspace_id')
+          .select('workspace_id, role')
           .eq('user_id', user.id)
           .limit(1)
           .maybeSingle()
 
-        // Punya workspace → dashboard, belum punya → setup
+        // Bukan owner → sign out Google session, arahkan ke login anggota
+        if (member && member.role !== 'owner') {
+          await supabase.auth.signOut()
+          return NextResponse.redirect(`${origin}/login/anggota?hint=gunakan_kode`)
+        }
+
+        // Owner dengan workspace → dashboard
+        // Owner belum punya workspace → setup
+        // Tidak ada record sama sekali → setup
         const redirectTo = member?.workspace_id ? '/dashboard' : '/dashboard/setup'
         return NextResponse.redirect(`${origin}${redirectTo}`)
       }

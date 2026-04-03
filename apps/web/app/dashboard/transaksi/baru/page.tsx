@@ -74,12 +74,10 @@ export default function NewTransactionPage() {
 
       const member      = memberships[0] as any
       const ws          = member.workspaces
-      // FIX: pakai workspace_id dari membership — lebih reliable dari ws.id
       const workspaceId: string = member.workspace_id
 
       setWorkspace({ ...ws, id: workspaceId })
 
-      // FIX: filter is_active = true — hanya kategori yang dipilih saat setup
       const { data: cats, error: catErr } = await supabase
         .from('categories')
         .select('id, name, icon, type')
@@ -88,7 +86,6 @@ export default function NewTransactionPage() {
         .order('name', { ascending: true })
 
       if (catErr) {
-        // Fallback jika kolom is_active belum ada di DB
         const { data: catsFallback, error: catErrFallback } = await supabase
           .from('categories')
           .select('id, name, icon, type')
@@ -167,7 +164,7 @@ export default function NewTransactionPage() {
   }
   const sectionTitle: React.CSSProperties = {
     fontSize: 11, fontWeight: 600, color: '#8B7E6E',
-    textTransform: 'uppercase', letterSpacing: '0.07em', margin: '0 0 14px',
+    textTransform: 'uppercase', letterSpacing: '0.07em', margin: 0,
   }
   const fieldLabel: React.CSSProperties = {
     display: 'block', fontSize: 11.5, fontWeight: 500, color: '#5C5650', marginBottom: 5,
@@ -212,6 +209,7 @@ export default function NewTransactionPage() {
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes cat-pop { from{opacity:0;transform:scale(0.92)} to{opacity:1;transform:scale(1)} }
         .kbn-cat { animation: cat-pop 0.15s ease both; }
+        .manage-cat-link:hover { background: #EBF4FB !important; color: ${SB_DRK} !important; }
       `}</style>
 
       <div style={{ maxWidth: 620, margin: '0 auto', fontFamily: 'DM Sans, system-ui, sans-serif' }}>
@@ -232,7 +230,7 @@ export default function NewTransactionPage() {
 
         {/* Jenis + Jumlah */}
         <div style={card}>
-          <p style={sectionTitle}>Jenis Transaksi</p>
+          <p style={{ ...sectionTitle, marginBottom: 14 }}>Jenis Transaksi</p>
           <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
             {(['expense', 'income'] as const).map(t => (
               <button key={t} onClick={() => setType(t)}
@@ -267,15 +265,39 @@ export default function NewTransactionPage() {
 
         {/* Kategori */}
         <div style={card}>
-          <p style={sectionTitle}>
-            Kategori <span style={{ color: '#DC2626' }}>*</span>
-            <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: '#B0A89A', marginLeft: 6 }}>({filteredCats.length} tersedia)</span>
-          </p>
+          {/* Header: judul + tombol Kelola Kategori — SELALU tampil, bukan hanya saat kosong */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <p style={sectionTitle}>
+              Kategori <span style={{ color: '#DC2626' }}>*</span>
+              <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: '#B0A89A', marginLeft: 6 }}>
+                ({filteredCats.length} tersedia)
+              </span>
+            </p>
+            <a
+              href="/dashboard/kategori"
+              className="manage-cat-link"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                fontSize: 11, fontWeight: 600, color: SB,
+                textDecoration: 'none', padding: '4px 8px',
+                borderRadius: 6, background: '#F0F6FB',
+                border: '1px solid #C8DFF0', whiteSpace: 'nowrap',
+                transition: 'background 0.12s, color 0.12s',
+              }}>
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                <path d="M1 6h10M6 1l5 5-5 5" stroke={SB} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Kelola Kategori
+            </a>
+          </div>
+
           {filteredCats.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '20px 0' }}>
               <div style={{ fontSize: 28, marginBottom: 8 }}>{isIncome ? '💰' : '💸'}</div>
-              <p style={{ fontSize: 12.5, color: '#8B7E6E', marginBottom: 12 }}>Belum ada kategori {isIncome ? 'pemasukan' : 'pengeluaran'}.</p>
-              <a href="/dashboard/kategori" style={{ fontSize: 12, color: SB, textDecoration: 'none', fontWeight: 500 }}>+ Tambah di halaman Kategori →</a>
+              <p style={{ fontSize: 12.5, color: '#8B7E6E', margin: 0 }}>
+                Belum ada kategori {isIncome ? 'pemasukan' : 'pengeluaran'} aktif.<br/>
+                <span style={{ fontSize: 11.5, color: '#B0A89A' }}>Tambah atau aktifkan lewat tombol di atas.</span>
+              </p>
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
@@ -296,7 +318,7 @@ export default function NewTransactionPage() {
 
         {/* Detail */}
         <div style={card}>
-          <p style={sectionTitle}>Detail</p>
+          <p style={{ ...sectionTitle, marginBottom: 14 }}>Detail</p>
           <div style={{ marginBottom: 14 }}>
             <label style={fieldLabel}>Keterangan <span style={{ color: '#DC2626' }}>*</span></label>
             <input className="kbn-input" style={inputBase}

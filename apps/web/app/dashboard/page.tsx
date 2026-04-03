@@ -10,11 +10,13 @@ export default async function DashboardPage() {
     .from('workspace_members')
     .select('workspace_id, role, workspaces(id, name, type)')
     .eq('user_id', user.id)
-    .limit(10)
+    .eq('role', 'owner')
+    .limit(1)
 
   if (!memberships || memberships.length === 0) redirect('/setup')
 
   const workspace = (memberships[0] as any).workspaces
+  if (!workspace) redirect('/setup')
 
   const now      = new Date()
   const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]

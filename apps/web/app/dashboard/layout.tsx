@@ -1,5 +1,6 @@
 'use client'
 
+// app/dashboard/layout.tsx
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -11,6 +12,18 @@ const dmSans = DM_Sans({
   weight: ['400', '500', '600'],
   display: 'swap',
 })
+
+// ── Tipe session yang bisa masuk dashboard ────────────────────────────────────
+type SessionType = 'owner' | 'member' | null
+
+interface MemberInfo {
+  sessionType: SessionType
+  displayName: string
+  email?: string
+  initials: string
+  workspaceName?: string
+  role?: string
+}
 
 const navItems = [
   {
@@ -79,48 +92,95 @@ const navItems = [
   },
 ]
 
-// ── Breadcrumb helper ─────────────────────────────────────────────────────────
+// Nav items yang boleh diakses member (role: member/viewer)
+const MEMBER_ALLOWED_HREFS = [
+  '/dashboard',
+  '/dashboard/transaksi',
+  '/dashboard/tagihan',
+  '/dashboard/laporan',
+]
+
 function getPageLabel(pathname: string): string {
-  // Cari exact match dulu
   const exact = navItems.find((item) => item.href === pathname)
   if (exact) return exact.label
-
-  // Cari prefix match terpanjang (untuk sub-route seperti /dashboard/transaksi/baru)
   const match = navItems
     .filter((item) => item.href !== '/dashboard' && pathname.startsWith(item.href))
     .sort((a, b) => b.href.length - a.href.length)[0]
   if (match) return match.label
-
   return 'Ringkasan'
 }
 
 const SB = '#7AAACE'
-const SB_DARK = '#5E96C0'
 const SIDEBAR_W = 232
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router   = useRouter()
   const pathname = usePathname()
-  const [user, setUser]               = useState<any>(null)
+
+  const [info, setInfo]               = useState<MemberInfo | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [hoveredNav, setHoveredNav]   = useState<string | null>(null)
   const [logoutHover, setLogoutHover] = useState(false)
 
   useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) router.push('/login')
-      else setUser(user)
-    })
-  }, [])
+    async function checkAuth() {
+      // 1. Coba Supabase Auth dulu (owner/admin)
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+
+      if (user) {
+        setInfo({
+          sessionType: 'owner',
+          displayName: user.user_metadata?.full_name || 'Pengguna',
+          email: user.email,
+          initials: (user.user_metadata?.full_name?.[0] || user.email?.[0] || '?').toUpperCase(),
+        })
+        return
+      }
+
+      // 2. Coba member_session cookie (anggota)
+      const res = await fetch('/api/member-session', { credentials: 'include' })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.valid) {
+          // Cek apakah halaman ini diizinkan untuk member
+          const allowed = MEMBER_ALLOWED_HREFS.some(
+            href => pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
+          )
+          if (!allowed) {
+            router.replace('/dashboard')
+            return
+          }
+          setInfo({
+            sessionType: 'member',
+            displayName: data.display_name || 'Anggota',
+            initials: (data.display_name?.[0] || 'A').toUpperCase(),
+            workspaceName: data.workspace_name,
+            role: data.role,
+          })
+          return
+        }
+      }
+
+      // 3. Tidak ada session valid → redirect
+      router.push('/')
+    }
+
+    checkAuth()
+  }, [pathname])
 
   const handleLogout = async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login')
+    if (info?.sessionType === 'member') {
+      await fetch('/api/member-logout', { method: 'POST', credentials: 'include' })
+      router.push('/')
+    } else {
+      const supabase = createClient()
+      await supabase.auth.signOut()
+      router.push('/login')
+    }
   }
 
-  if (!user) return (
+  if (!info) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FAFAF9', fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
         <div style={{ width: 42, height: 42, borderRadius: 12, background: SB, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -131,9 +191,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     </div>
   )
 
-  const initials    = user.user_metadata?.full_name?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || '?'
-  const displayName = user.user_metadata?.full_name || 'Pengguna'
-  const pageLabel   = getPageLabel(pathname)  // ← dinamis
+  const pageLabel = getPageLabel(pathname)
+  const isMember  = info.sessionType === 'member'
+
+  // Filter nav untuk member
+  const visibleNavItems = isMember
+    ? navItems.filter(item => MEMBER_ALLOWED_HREFS.includes(item.href))
+    : navItems
 
   return (
     <>
@@ -169,17 +233,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', letterSpacing: '-0.2px', lineHeight: 1 }}>KasRT</div>
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 3 }}>Keuangan Bersama</div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 3 }}>
+                  {isMember ? info.workspaceName || 'Keuangan Bersama' : 'Keuangan Bersama'}
+                </div>
               </div>
             </div>
           </div>
+
+          {/* Badge member */}
+          {isMember && (
+            <div style={{ margin: '8px 10px 0', padding: '6px 10px', background: 'rgba(255,255,255,0.12)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.18)' }}>
+              <div style={{ fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>Mode Anggota</div>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: '#fff' }}>{info.role === 'viewer' ? '👁 Hanya lihat' : '✏️ Bisa catat transaksi'}</div>
+            </div>
+          )}
 
           {/* Nav items */}
           <nav style={{ flex: 1, padding: '10px 8px', overflowY: 'auto' }}>
             <div style={{ fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.09em', padding: '2px 8px 8px' }}>
               Menu
             </div>
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const active  = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
               const hovered = hoveredNav === item.href
               return (
@@ -190,17 +264,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   onMouseEnter={() => setHoveredNav(item.href)}
                   onMouseLeave={() => setHoveredNav(null)}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '8px 10px',
-                    borderRadius: 8,
-                    fontSize: 13,
-                    fontWeight: 500,
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '8px 10px', borderRadius: 8,
+                    fontSize: 13, fontWeight: 500,
                     color: active || hovered ? '#fff' : 'rgba(255,255,255,0.65)',
                     background: active ? 'rgba(255,255,255,0.22)' : hovered ? 'rgba(255,255,255,0.12)' : 'transparent',
-                    textDecoration: 'none',
-                    marginBottom: 2,
+                    textDecoration: 'none', marginBottom: 2,
                     transition: 'background 0.12s, color 0.12s',
                   }}
                 >
@@ -215,11 +284,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div style={{ padding: '8px 8px', borderTop: '1px solid rgba(255,255,255,0.14)', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 8px' }}>
               <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                {initials}
+                {info.initials}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</div>
-                <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>{user.email}</div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{info.displayName}</div>
+                <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
+                  {isMember ? `Anggota · ${info.workspaceName}` : info.email}
+                </div>
               </div>
             </div>
             <button
@@ -227,22 +298,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               onMouseEnter={() => setLogoutHover(true)}
               onMouseLeave={() => setLogoutHover(false)}
               style={{
-                width: '100%',
-                padding: '7px 10px',
+                width: '100%', padding: '7px 10px',
                 background: logoutHover ? 'rgba(255,255,255,0.1)' : 'transparent',
-                border: 'none',
-                color: logoutHover ? '#fff' : 'rgba(255,255,255,0.5)',
-                fontSize: 12,
-                fontWeight: 500,
-                textAlign: 'left',
-                cursor: 'pointer',
-                borderRadius: 7,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 7,
-                fontFamily: 'inherit',
-                marginTop: 2,
-                transition: 'background 0.12s, color 0.12s',
+                border: 'none', color: logoutHover ? '#fff' : 'rgba(255,255,255,0.5)',
+                fontSize: 12, fontWeight: 500, textAlign: 'left', cursor: 'pointer',
+                borderRadius: 7, display: 'flex', alignItems: 'center', gap: 7,
+                fontFamily: 'inherit', marginTop: 2, transition: 'background 0.12s, color 0.12s',
               }}
             >
               <svg width="13" height="13" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
@@ -255,9 +316,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* ── MAIN ── */}
         <div className="kasrt-main">
-          {/* Topbar */}
           <header style={{ height: 56, background: '#fff', borderBottom: '1px solid #EDE9E3', display: 'flex', alignItems: 'center', padding: '0 24px', gap: 10, position: 'sticky', top: 0, zIndex: 10, flexShrink: 0 }}>
-            {/* Mobile hamburger */}
             <button
               className="kasrt-mobile-menu-btn"
               onClick={() => setSidebarOpen(true)}
@@ -268,7 +327,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </svg>
             </button>
 
-            {/* Mobile logo */}
             <div className="kasrt-mobile-logo" style={{ display: 'none', alignItems: 'center', gap: 7 }}>
               <div style={{ width: 24, height: 24, borderRadius: 6, background: SB, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <span style={{ color: '#fff', fontWeight: 700, fontSize: 12, fontFamily: 'Georgia, serif' }}>K</span>
@@ -276,36 +334,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <span style={{ fontSize: 14, fontWeight: 600, color: '#0F0E0C' }}>KasRT</span>
             </div>
 
-            {/* Desktop breadcrumb — dinamis */}
             <div className="kasrt-breadcrumb" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
               <span style={{ color: '#9C9892' }}>Dashboard</span>
               <span style={{ color: '#D4CFC4' }}>/</span>
               <span style={{ color: '#0F0E0C', fontWeight: 500 }}>{pageLabel}</span>
             </div>
 
-            {/* Right actions */}
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div
-                className="kasrt-topbar-search"
-                style={{ display: 'flex', alignItems: 'center', gap: 7, background: '#F5F2EB', border: '1px solid #E3DED6', borderRadius: 8, padding: '6px 11px', fontSize: 12, color: '#9C9082', width: 160 }}
-              >
+              <div className="kasrt-topbar-search" style={{ display: 'flex', alignItems: 'center', gap: 7, background: '#F5F2EB', border: '1px solid #E3DED6', borderRadius: 8, padding: '6px 11px', fontSize: 12, color: '#9C9082', width: 160 }}>
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
                   <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
                   <path d="M10.5 10.5L13 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                 </svg>
                 Cari...
               </div>
-              <a
-                href="/dashboard/transaksi/baru"
-                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', background: SB, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none' }}
-              >
-                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
-                Transaksi
-              </a>
+              {/* Tombol + Transaksi hanya muncul untuk non-viewer */}
+              {(!isMember || info.role !== 'viewer') && (
+                <a
+                  href="/dashboard/transaksi/baru"
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', background: SB, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none' }}
+                >
+                  <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
+                  Transaksi
+                </a>
+              )}
             </div>
           </header>
 
-          {/* Page content */}
           <main style={{ flex: 1, padding: '28px 32px', overflowY: 'auto' }}>
             {children}
           </main>

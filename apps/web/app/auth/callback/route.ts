@@ -23,7 +23,7 @@ export async function GET(request: Request) {
         // Belum punya / bukan owner → setup (buat workspace baru)
         const redirectTo = (member?.role === 'owner' && member?.workspace_id)
           ? '/dashboard'
-          : '/dashboard/setup'
+          : '/setup'
         return NextResponse.redirect(`${origin}${redirectTo}`)
       }
     }

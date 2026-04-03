@@ -15,7 +15,7 @@ export default async function LoginPage() {
       .eq('user_id', user.id)
       .limit(1)
       .maybeSingle()
-    redirect(member?.workspace_id ? '/dashboard' : '/dashboard/setup')
+    redirect(member?.workspace_id ? '/dashboard' : '/setup')
   }
 
   return (

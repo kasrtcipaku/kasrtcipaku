@@ -34,7 +34,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "👋 Halo! Saya bot *KasRT* — asisten keuangan kamu.\n\n"
             "Untuk mulai, hubungkan bot ini ke workspace kamu dengan perintah:\n"
             "➡️ /hubungkan\n\n"
-            "Atau login ke kasrt.app dan ikuti langkah koneksi di sana.",
+            "Atau login ke kasrtcipaku.vercel.app dan ikuti langkah koneksi di sana.",
             parse_mode="Markdown"
         )
 

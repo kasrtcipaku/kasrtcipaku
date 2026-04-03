@@ -1,449 +1,482 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useRef } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import Link from 'next/link'
 
-type Transaction = {
-  id: string
-  type: 'income' | 'expense'
-  amount: number
-  description: string
-  date: string
-  categories: { name: string; icon: string } | null
-}
+/* ── Colour tokens ── */
+const SB     = '#7AAACE'
+const SB_DRK = '#5E96C0'
 
-type FilterPeriod = 'today' | 'week' | 'month' | 'all'
-
-const ACCENT   = '#7AAACE'
-const ACCENT_D = '#5E96C0'
-const fmt = (n: number) =>
+/* ── Helpers ── */
+const today = () => new Date().toISOString().split('T')[0]
+const fmt   = (n: number) =>
   new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n)
 
-export default function TransaksiPage() {
-  const [transactions, setTransactions] = useState<Transaction[]>([])
-  const [loading, setLoading]           = useState(true)
-  const [filter, setFilter]             = useState<FilterPeriod>('month')
-  const [typeFilter, setTypeFilter]     = useState<'all' | 'income' | 'expense'>('all')
-  const [search, setSearch]             = useState('')
-  const [deleteId, setDeleteId]         = useState<string | null>(null)
-  const [deleting, setDeleting]         = useState(false)
-  const [page, setPage]                 = useState(1)
-  const [newItem, setNewItem]           = useState<string | null>(null)
-  const [hoveredRow, setHoveredRow]     = useState<string | null>(null)
-  const [addHover, setAddHover]         = useState(false)
-  const PER_PAGE = 20
+function parseAmount(raw: string): number {
+  return parseInt(raw.replace(/\D/g, ''), 10) || 0
+}
+function displayAmount(raw: string): string {
+  const n = parseAmount(raw)
+  if (!n) return ''
+  return n.toLocaleString('id-ID')
+}
 
-  const getDateRange = (period: FilterPeriod) => {
-    const now = new Date()
-    if (period === 'today') {
-      const d = now.toISOString().split('T')[0]
-      return { from: d, to: d }
-    }
-    if (period === 'week') {
-      const day  = now.getDay()
-      const diff = now.getDate() - day + (day === 0 ? -6 : 1)
-      const from = new Date(new Date(now).setDate(diff)).toISOString().split('T')[0]
-      return { from, to: new Date().toISOString().split('T')[0] }
-    }
-    if (period === 'month') {
-      const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
-      const to   = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]
-      return { from, to }
-    }
-    return null
-  }
+type DbCategory = {
+  id: string
+  name: string
+  icon: string
+  type: 'income' | 'expense'
+}
 
-  const fetchTransactions = useCallback(async () => {
-    setLoading(true)
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+/* ── Component ── */
+export default function NewTransactionPage() {
+  const router  = useRouter()
+  const params  = useSearchParams()
+  const fileRef = useRef<HTMLInputElement>(null)
 
-    const { data: memberships } = await supabase
-      .from('workspace_members')
-      .select('workspace_id')
-      .eq('user_id', user.id)
-      .limit(1)
+  const [workspace,   setWorkspace]   = useState<any>(null)
+  const [loading,     setLoading]     = useState(true)
+  const [submitting,  setSubmitting]  = useState(false)
+  const [error,       setError]       = useState<string | null>(null)
 
-    if (!memberships?.length) return
+  /* Semua kategori dari DB, difilter per tipe */
+  const [dbCategories, setDbCategories] = useState<DbCategory[]>([])
 
-    let query = supabase
-      .from('transactions')
-      .select('id, type, amount, description, date, categories(name, icon)')
-      .eq('workspace_id', memberships[0].workspace_id)
-      .order('date', { ascending: false })
+  /* form state */
+  const [type,        setType]        = useState<'income' | 'expense'>(
+    (params.get('type') as 'income' | 'expense') || 'expense'
+  )
+  const [amount,      setAmount]      = useState('')
+  const [date,        setDate]        = useState(today())
+  const [ref,         setRef]         = useState('')
+  const [categoryId,  setCategoryId]  = useState<string | null>(null)
+  const [description, setDesc]        = useState('')
+  const [note,        setNote]        = useState('')
+  const [file,        setFile]        = useState<File | null>(null)
 
-    const range = getDateRange(filter)
-    if (range) query = query.gte('date', range.from).lte('date', range.to)
-    if (typeFilter !== 'all') query = query.eq('type', typeFilter)
-    if (search.trim()) query = query.ilike('description', `%${search}%`)
+  /* hover states */
+  const [hoverCancel,  setHoverCancel]  = useState(false)
+  const [hoverSubmit,  setHoverSubmit]  = useState(false)
+  const [hoverFile,    setHoverFile]    = useState(false)
 
-    const { data } = await query
-    setTransactions((data as any[]) || [])
-    setLoading(false)
-    setPage(1)
-  }, [filter, typeFilter, search])
-
-  useEffect(() => { fetchTransactions() }, [fetchTransactions])
-
+  /* ── Load workspace & categories dari DB ── */
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const newId  = params.get('new')
-    if (newId) {
-      setNewItem(newId)
-      setTimeout(() => setNewItem(null), 3000)
-      window.history.replaceState({}, '', '/dashboard/transaksi')
-    }
+    ;(async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.push('/login'); return }
+
+      const { data: memberships } = await supabase
+        .from('workspace_members')
+        .select('workspace_id, workspaces(id, name, type)')
+        .eq('user_id', user.id)
+        .limit(1)
+
+      if (!memberships || memberships.length === 0) { router.push('/setup'); return }
+
+      const ws = (memberships[0] as any).workspaces
+      setWorkspace(ws)
+
+      // Ambil semua kategori aktif dari workspace ini — termasuk yang custom dari setup
+      const { data: cats } = await supabase
+        .from('categories')
+        .select('id, name, icon, type')
+        .eq('workspace_id', ws.id)
+        .eq('is_active', true)
+        .order('type', { ascending: true })
+        .order('name', { ascending: true })
+
+      if (cats && cats.length > 0) {
+        setDbCategories(cats as DbCategory[])
+      }
+      setLoading(false)
+    })()
   }, [])
 
-  const handleDelete = async () => {
-    if (!deleteId) return
-    setDeleting(true)
+  /* Reset pilihan kategori ketika tipe berubah */
+  useEffect(() => {
+    setCategoryId(null)
+  }, [type])
+
+  /* Kategori yang relevan untuk tipe aktif */
+  const filteredCats = dbCategories.filter(c => c.type === type)
+
+  /* Kategori yang sedang dipilih */
+  const selectedCat = filteredCats.find(c => c.id === categoryId) ?? null
+
+  /* ── Submit ── */
+  const handleSubmit = async () => {
+    setError(null)
+    if (!description.trim()) { setError('Keterangan tidak boleh kosong.'); return }
+    if (parseAmount(amount) === 0) { setError('Jumlah tidak boleh nol.'); return }
+    if (!categoryId) { setError('Pilih kategori terlebih dahulu.'); return }
+
+    setSubmitting(true)
     const supabase = createClient()
-    await supabase.from('transactions').delete().eq('id', deleteId)
-    setDeleteId(null)
-    setDeleting(false)
-    fetchTransactions()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    /* Upload attachment */
+    let attachmentUrl: string | null = null
+    if (file) {
+      const path = `${workspace.id}/${Date.now()}_${file.name}`
+      const { data: uploaded } = await supabase.storage
+        .from('transaction-attachments')
+        .upload(path, file)
+      if (uploaded) {
+        const { data: { publicUrl } } = supabase.storage
+          .from('transaction-attachments')
+          .getPublicUrl(uploaded.path)
+        attachmentUrl = publicUrl
+      }
+    }
+
+    const { error: insertError } = await supabase.from('transactions').insert({
+      workspace_id:   workspace.id,
+      user_id:        user!.id,
+      type,
+      amount:         parseAmount(amount),
+      date,
+      description:    description.trim(),
+      note:           note.trim() || null,
+      category_id:    categoryId,
+      reference:      ref.trim() || null,
+      attachment_url: attachmentUrl,
+    })
+
+    if (insertError) {
+      setError(insertError.message)
+      setSubmitting(false)
+    } else {
+      router.push('/dashboard/transaksi?new=1')
+    }
   }
 
-  const totalIncome  = transactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
-  const totalExpense = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
-  const saldo        = totalIncome - totalExpense
-  const incomeCount  = transactions.filter(t => t.type === 'income').length
-  const expenseCount = transactions.filter(t => t.type === 'expense').length
-
-  const paginated  = transactions.slice((page - 1) * PER_PAGE, page * PER_PAGE)
-  const totalPages = Math.ceil(transactions.length / PER_PAGE)
-
-  const filterLabels: Record<FilterPeriod, string> = {
-    today: 'Hari ini', week: 'Minggu ini', month: 'Bulan ini', all: 'Semua',
-  }
-
-  const card = {
+  /* ── Styles ── */
+  const card: React.CSSProperties = {
     background: '#fff',
-    border: '1px solid #E8E0D4',
     borderRadius: 12,
-  } as const
-
-  // Pill style helper
-  const pillStyle = (active: boolean, variant?: 'income' | 'expense' | 'accent') => ({
-    padding: '5px 12px',
-    borderRadius: 7,
+    border: '1px solid #E8E0D4',
+    padding: '20px 22px',
+    marginBottom: 12,
+  }
+  const sectionTitle: React.CSSProperties = {
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#8B7E6E',
+    textTransform: 'uppercase',
+    letterSpacing: '0.07em',
+    margin: '0 0 14px',
+  }
+  const fieldLabel: React.CSSProperties = {
+    display: 'block',
     fontSize: 11.5,
     fontWeight: 500,
-    border: 'none',
-    cursor: 'pointer',
+    color: '#5C5650',
+    marginBottom: 5,
+  }
+  const inputBase: React.CSSProperties = {
+    width: '100%',
+    padding: '9px 12px',
+    border: '1px solid #DDD8CF',
+    borderRadius: 8,
+    fontSize: 13,
     fontFamily: 'inherit',
-    transition: 'background 0.12s',
-    background: active
-      ? variant === 'income' ? '#F0FDF4'
-        : variant === 'expense' ? '#FEF2F2'
-        : ACCENT
-      : '#F5F0EA',
-    color: active
-      ? variant === 'income' ? '#15803D'
-        : variant === 'expense' ? '#DC2626'
-        : '#fff'
-      : '#6B6860',
-    ...(active && variant === 'income' ? { border: '1px solid #BBF7D0' } : {}),
-    ...(active && variant === 'expense' ? { border: '1px solid #FECACA' } : {}),
-  } as React.CSSProperties)
+    color: '#1A1A18',
+    background: '#fff',
+    outline: 'none',
+    boxSizing: 'border-box',
+  }
+
+  const isIncome = type === 'income'
+
+  /* ── Loading ── */
+  if (loading) return (
+    <div style={{ minHeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <p style={{ fontSize: 13, color: '#8B7E6E', fontFamily: 'DM Sans, system-ui, sans-serif' }}>Memuat kategori...</p>
+    </div>
+  )
 
   return (
-    <div style={{ maxWidth: 860, margin: '0 auto', fontFamily: 'DM Sans, system-ui, sans-serif' }}>
+    <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap');
-        @keyframes kasrt-slideIn {
-          from { opacity: 0; transform: translateY(-8px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes kasrt-bounceIn {
-          0%   { opacity: 0; transform: scale(0.8); }
-          60%  { opacity: 1; transform: scale(1.04); }
-          100% { transform: scale(1); }
-        }
-        @keyframes kasrt-shimmer {
-          0%   { background-position: -200% 0; }
-          100% { background-position:  200% 0; }
-        }
-        .kasrt-row-new {
-          animation: kasrt-bounceIn 0.4s cubic-bezier(0.34,1.56,0.64,1) forwards;
-          outline: 2px solid ${ACCENT};
-          outline-offset: -2px;
-        }
-        .kasrt-row-enter { animation: kasrt-slideIn 0.25s ease forwards; }
-        .kasrt-skeleton {
-          background: linear-gradient(90deg,#ede9e0 25%,#d8d3c9 50%,#ede9e0 75%);
-          background-size: 200% 100%;
-          animation: kasrt-shimmer 1.4s infinite;
-          border-radius: 6px;
-        }
-        .kasrt-modal-in { animation: kasrt-bounceIn 0.3s cubic-bezier(0.34,1.56,0.64,1); }
-        .kasrt-search:focus { outline: none; border-color: ${ACCENT}; box-shadow: 0 0 0 3px rgba(122,170,206,0.18); }
-        .kasrt-page-btn:hover:not(:disabled) { background: #F5F0EA; }
+        *, *::before, *::after { box-sizing: border-box; }
+        .kbn-input { transition: border-color 0.12s, box-shadow 0.12s; }
+        .kbn-input:focus { border-color: ${SB} !important; box-shadow: 0 0 0 3px rgba(122,170,206,0.15) !important; }
+        .kbn-cat { transition: all 0.12s; cursor: pointer; }
+        .kbn-cat:hover { border-color: ${SB}; background: #EBF4FB; }
+        .kbn-cat.active-income  { border-color: #16A34A; background: #DCFCE7; box-shadow: 0 0 0 2px rgba(22,163,74,0.15); }
+        .kbn-cat.active-expense { border-color: #DC2626; background: #FEE2E2; box-shadow: 0 0 0 2px rgba(220,38,38,0.15); }
+        .kbn-type-income  { background: #F0FDF4; border-color: #BBF7D0; color: #15803D; }
+        .kbn-type-income.active  { background: #DCFCE7; border-color: #16A34A; box-shadow: 0 0 0 3px rgba(22,163,74,0.12); }
+        .kbn-type-expense { background: #FEF2F2; border-color: #FECACA; color: #DC2626; }
+        .kbn-type-expense.active { background: #FEE2E2; border-color: #DC2626; box-shadow: 0 0 0 3px rgba(220,38,38,0.12); }
+        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
 
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-        <div>
-          <h2 style={{ fontSize: 22, fontWeight: 600, color: '#1A1A18', letterSpacing: '-0.4px', margin: 0 }}>Transaksi</h2>
-          <p style={{ fontSize: 12, color: '#8B7E6E', marginTop: 3 }}>
-            {loading ? 'Memuat...' : `${transactions.length} transaksi ditemukan`}
-          </p>
-        </div>
-        <Link
-          href="/dashboard/transaksi/baru"
-          onMouseEnter={() => setAddHover(true)}
-          onMouseLeave={() => setAddHover(false)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '8px 16px', background: addHover ? ACCENT_D : ACCENT,
-            color: '#fff', border: 'none', borderRadius: 9,
-            fontSize: 12.5, fontWeight: 500, cursor: 'pointer',
-            fontFamily: 'inherit', textDecoration: 'none',
-            transition: 'background 0.12s',
-          }}
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M6 1v10M1 6h10" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/>
-          </svg>
-          Tambah
-        </Link>
-      </div>
+      <div style={{ maxWidth: 620, margin: '0 auto', fontFamily: 'DM Sans, system-ui, sans-serif' }}>
 
-      {/* Stat cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 14 }}>
-        {[
-          { label: 'Pemasukan',     value: totalIncome,  color: '#15803D', badge: `${incomeCount} transaksi`,  badgeBg: '#F0FDF4', badgeColor: '#15803D' },
-          { label: 'Pengeluaran',   value: totalExpense, color: '#DC2626', badge: `${expenseCount} transaksi`, badgeBg: '#FEF2F2', badgeColor: '#DC2626' },
-          { label: 'Saldo Periode', value: saldo,        color: saldo >= 0 ? '#15803D' : '#DC2626',
-            badge: saldo >= 0 ? '↑ Surplus' : '↓ Defisit',
-            badgeBg: saldo >= 0 ? '#F0FDF4' : '#FEF2F2',
-            badgeColor: saldo >= 0 ? '#15803D' : '#DC2626' },
-        ].map((c) => (
-          <div key={c.label} style={{ ...card, padding: '14px 16px' }}>
-            <div style={{ fontSize: 11, fontWeight: 500, color: '#8B7E6E', marginBottom: 5 }}>{c.label}</div>
-            <div style={{ fontSize: 19, fontWeight: 600, color: c.color, letterSpacing: '-0.3px' }}>{fmt(c.value)}</div>
-            <span style={{ display: 'inline-block', marginTop: 7, fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 99, background: c.badgeBg, color: c.badgeColor }}>
-              {c.badge}
-            </span>
+        {/* ── Header ── */}
+        <div style={{ marginBottom: 22 }}>
+          <button
+            onClick={() => router.back()}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 500, color: '#8B7E6E', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit', marginBottom: 12 }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M9 2L4 7l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Kembali
+          </button>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: '#8B7E6E', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+            Transaksi
           </div>
-        ))}
-      </div>
+          <h2 style={{ fontSize: 22, fontWeight: 600, color: '#1A1A18', letterSpacing: '-0.4px', margin: '3px 0 4px' }}>
+            Catat Transaksi Baru
+          </h2>
+          <p style={{ fontSize: 12, color: '#8B7E6E', margin: 0 }}>{workspace?.name}</p>
+        </div>
 
-      {/* Filters */}
-      <div style={{ ...card, padding: '14px 16px', marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10, flexWrap: 'wrap' }}>
-          {(Object.entries(filterLabels) as [FilterPeriod, string][]).map(([key, label]) => (
-            <button key={key} onClick={() => setFilter(key)} style={pillStyle(filter === key)}>
-              {label}
-            </button>
-          ))}
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-            <button onClick={() => setTypeFilter('all')}     style={pillStyle(typeFilter === 'all')}>Semua</button>
-            <button onClick={() => setTypeFilter('income')}  style={pillStyle(typeFilter === 'income',  'income')}>↑ Masuk</button>
-            <button onClick={() => setTypeFilter('expense')} style={pillStyle(typeFilter === 'expense', 'expense')}>↓ Keluar</button>
+        {/* ── Error ── */}
+        {error && (
+          <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: '#FEF2F2', border: '1px solid #FECACA', fontSize: 12.5, color: '#DC2626' }}>
+            {error}
           </div>
-        </div>
-        <div style={{ position: 'relative' }}>
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
-            <circle cx="7" cy="7" r="4.5" stroke="#9C9082" strokeWidth="1.5"/>
-            <path d="M10.5 10.5L13 13" stroke="#9C9082" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Cari deskripsi transaksi..."
-            className="kasrt-search"
-            style={{
-              width: '100%', padding: '8px 12px 8px 32px',
-              border: '1px solid #E0D9CE', borderRadius: 8,
-              fontSize: 12.5, color: '#1A1A18', background: '#FAFAF8',
-              fontFamily: 'inherit', transition: 'border-color 0.15s, box-shadow 0.15s',
-            }}
-          />
-        </div>
-      </div>
+        )}
 
-      {/* Table */}
-      <div style={{ ...card, overflow: 'hidden' }}>
-        {/* Table header */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 120px 140px 72px', padding: '10px 18px', borderBottom: '1px solid #F2EDE5', background: '#FAFAF8' }}>
-          {['Transaksi', 'Tanggal', 'Jumlah', 'Aksi'].map((h, i) => (
-            <div key={h} style={{ fontSize: 10.5, fontWeight: 600, color: '#8B7E6E', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: i >= 2 ? 'right' : 'left' }}>
-              {h}
-            </div>
-          ))}
-        </div>
+        {/* ── Type Toggle + Amount ── */}
+        <div style={card}>
+          <p style={sectionTitle}>Jenis Transaksi</p>
 
-        {loading ? (
-          <div style={{ padding: '16px 18px' }}>
-            {[...Array(5)].map((_, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                <div className="kasrt-skeleton" style={{ width: 32, height: 32, borderRadius: 9, flexShrink: 0 }} />
-                <div style={{ flex: 1 }}>
-                  <div className="kasrt-skeleton" style={{ height: 13, width: '45%', marginBottom: 6 }} />
-                  <div className="kasrt-skeleton" style={{ height: 11, width: '28%' }} />
-                </div>
-                <div className="kasrt-skeleton" style={{ height: 13, width: 90 }} />
-              </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+            {(['expense', 'income'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setType(t)}
+                className={`kbn-type-${t}${type === t ? ' active' : ''}`}
+                style={{
+                  flex: 1, padding: '10px', borderRadius: 10, border: '1.5px solid transparent',
+                  cursor: 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                  transition: 'all 0.15s',
+                }}
+              >
+                {t === 'income'
+                  ? <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 12V2M2 7h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                  : <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M2 7h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                }
+                {t === 'income' ? 'Pemasukan' : 'Pengeluaran'}
+              </button>
             ))}
           </div>
-        ) : paginated.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '56px 20px' }}>
-            <div style={{ fontSize: 36, marginBottom: 10 }}>💸</div>
-            <p style={{ fontSize: 13, color: '#8B7E6E', marginBottom: 14 }}>Belum ada transaksi ditemukan</p>
-            <Link
-              href="/dashboard/transaksi/baru"
-              style={{ display: 'inline-block', fontSize: 12, fontWeight: 500, color: '#fff', padding: '7px 16px', borderRadius: 8, background: ACCENT, textDecoration: 'none' }}
-            >
-              + Tambah Transaksi
-            </Link>
-          </div>
-        ) : (
-          <div>
-            {paginated.map((t, i) => {
-              const hovered = hoveredRow === t.id
-              const isNew   = t.id === newItem
-              return (
-                <div
-                  key={t.id}
-                  className={isNew ? 'kasrt-row-new' : 'kasrt-row-enter'}
-                  onMouseEnter={() => setHoveredRow(t.id)}
-                  onMouseLeave={() => setHoveredRow(null)}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '2fr 120px 140px 72px',
-                    alignItems: 'center',
-                    padding: '11px 18px',
-                    borderBottom: i < paginated.length - 1 ? '1px solid #F5F1EC' : 'none',
-                    background: hovered ? '#FAFAF8' : '#fff',
-                    transition: 'background 0.1s',
-                    animationDelay: isNew ? '0s' : `${i * 0.025}s`,
-                  }}
-                >
-                  {/* Transaksi */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                    <div style={{
-                      width: 32, height: 32, borderRadius: 9, flexShrink: 0,
-                      background: t.type === 'income' ? '#F0FDF4' : '#FEF2F2',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15,
-                    }}>
-                      {t.categories?.icon || (t.type === 'income' ? '💰' : '💸')}
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 500, color: '#1A1A18', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {t.description || t.categories?.name || '-'}
-                      </div>
-                      <div style={{ fontSize: 10.5, color: '#8B7E6E', marginTop: 2 }}>
-                        {t.type === 'income' ? 'Pemasukan' : 'Pengeluaran'}
-                        {t.categories?.name && (
-                          <span style={{ marginLeft: 5, display: 'inline-block', fontSize: 10, padding: '1px 6px', borderRadius: 99, background: '#F5F0EA', color: '#6B6860' }}>
-                            {t.categories.name}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* Tanggal */}
-                  <div style={{ fontSize: 12, color: '#8B7E6E' }}>
-                    {new Date(t.date).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })}
-                  </div>
-
-                  {/* Jumlah */}
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: t.type === 'income' ? '#15803D' : '#DC2626', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {t.type === 'income' ? '+' : '−'}{fmt(t.amount)}
-                  </div>
-
-                  {/* Aksi */}
-                  <div style={{ display: 'flex', gap: 3, justifyContent: 'flex-end', opacity: hovered ? 1 : 0, transition: 'opacity 0.15s' }}>
-                    <Link
-                      href={`/dashboard/transaksi/${t.id}/edit`}
-                      title="Edit"
-                      style={{ width: 28, height: 28, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, textDecoration: 'none', background: 'transparent', border: 'none', cursor: 'pointer' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = '#F5F0EA')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                    >
-                      ✏️
-                    </Link>
-                    <button
-                      onClick={() => setDeleteId(t.id)}
-                      title="Hapus"
-                      style={{ width: 28, height: 28, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, background: 'transparent', border: 'none', cursor: 'pointer' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = '#FEF2F2')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 18px', borderTop: '1px solid #F2EDE5', background: '#FAFAF8' }}>
-            <span style={{ fontSize: 11.5, color: '#8B7E6E' }}>
-              {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, transactions.length)} dari {transactions.length} transaksi
-            </span>
-            <div style={{ display: 'flex', gap: 6 }}>
-              {[{ label: '←', action: () => setPage(p => Math.max(1, p - 1)), disabled: page === 1 },
-                { label: '→', action: () => setPage(p => Math.min(totalPages, p + 1)), disabled: page === totalPages }
-              ].map(b => (
-                <button
-                  key={b.label}
-                  onClick={b.action}
-                  disabled={b.disabled}
-                  className="kasrt-page-btn"
-                  style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid #E0D9CE', background: '#fff', fontSize: 11.5, cursor: 'pointer', fontFamily: 'inherit', color: '#3d3a35', opacity: b.disabled ? 0.35 : 1, transition: 'background 0.12s' }}
-                >
-                  {b.label}
-                </button>
-              ))}
+          {/* Amount */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={fieldLabel}>Jumlah <span style={{ color: '#DC2626' }}>*</span></label>
+            <div style={{ position: 'relative' }}>
+              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, fontWeight: 600, color: '#8B7E6E', pointerEvents: 'none' }}>
+                Rp
+              </span>
+              <input
+                className="kbn-input"
+                style={{ ...inputBase, paddingLeft: 52, fontSize: 15, fontWeight: 600, letterSpacing: '-0.3px' }}
+                placeholder="0"
+                value={amount}
+                onChange={e => setAmount(displayAmount(e.target.value))}
+                inputMode="numeric"
+              />
             </div>
           </div>
-        )}
-      </div>
 
-      {/* Delete modal */}
-      {deleteId && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-          onClick={() => setDeleteId(null)}
-        >
-          <div
-            className="kasrt-modal-in"
-            onClick={e => e.stopPropagation()}
-            style={{ background: '#fff', borderRadius: 16, padding: '28px 24px', width: '100%', maxWidth: 340 }}
-          >
-            <div style={{ textAlign: 'center', marginBottom: 16 }}>
-              <div style={{ width: 48, height: 48, borderRadius: 12, background: '#FEF2F2', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px', fontSize: 22 }}>🗑️</div>
-              <h3 style={{ fontSize: 16, fontWeight: 600, color: '#1A1A18', margin: '0 0 6px' }}>Hapus Transaksi?</h3>
-              <p style={{ fontSize: 13, color: '#8B7E6E', margin: 0 }}>Tindakan ini tidak bisa dibatalkan.</p>
+          {/* Date + Ref */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={fieldLabel}>Tanggal <span style={{ color: '#DC2626' }}>*</span></label>
+              <input className="kbn-input" style={inputBase} type="date" value={date} onChange={e => setDate(e.target.value)} />
             </div>
-            <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-              <button
-                onClick={() => setDeleteId(null)}
-                style={{ flex: 1, padding: '10px', border: '1px solid #E0D9CE', background: '#fff', color: '#3d3a35', borderRadius: 10, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
-              >
-                Batal
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={deleting}
-                style={{ flex: 1, padding: '10px', border: 'none', background: '#DC2626', color: '#fff', borderRadius: 10, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', opacity: deleting ? 0.6 : 1 }}
-              >
-                {deleting ? 'Menghapus...' : 'Ya, Hapus'}
-              </button>
+            <div>
+              <label style={fieldLabel}>No. Referensi</label>
+              <input className="kbn-input" style={inputBase} placeholder="Opsional" value={ref} onChange={e => setRef(e.target.value)} />
             </div>
           </div>
         </div>
-      )}
-    </div>
+
+        {/* ── Kategori dari DB ── */}
+        <div style={card}>
+          <p style={sectionTitle}>
+            Kategori{' '}
+            <span style={{ color: '#DC2626' }}>*</span>
+            <span style={{ color: '#B0A89A', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>
+              ({filteredCats.length} tersedia)
+            </span>
+          </p>
+
+          {filteredCats.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '20px 0', color: '#8B7E6E', fontSize: 12.5 }}>
+              Belum ada kategori {isIncome ? 'pemasukan' : 'pengeluaran'}.
+              <br />
+              <a href="/dashboard/kategori" style={{ color: SB, textDecoration: 'none', fontWeight: 500 }}>
+                Tambah di halaman Kategori →
+              </a>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
+              {filteredCats.map(cat => {
+                const active = categoryId === cat.id
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => setCategoryId(active ? null : cat.id)}
+                    className={`kbn-cat${active ? ` active-${type}` : ''}`}
+                    style={{
+                      padding: '9px 6px', borderRadius: 8, border: '1.5px solid #E8E0D4',
+                      background: '#FAFAF9', cursor: 'pointer', fontFamily: 'inherit',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                    }}
+                  >
+                    <span style={{ fontSize: 18, lineHeight: 1 }}>{cat.icon || (isIncome ? '💰' : '💸')}</span>
+                    <span style={{ fontSize: 10, fontWeight: 500, color: '#5C5650', textAlign: 'center', lineHeight: 1.2 }}>
+                      {cat.name}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ── Detail ── */}
+        <div style={card}>
+          <p style={sectionTitle}>Detail</p>
+
+          <div style={{ marginBottom: 14 }}>
+            <label style={fieldLabel}>Keterangan <span style={{ color: '#DC2626' }}>*</span></label>
+            <input
+              className="kbn-input"
+              style={inputBase}
+              placeholder={isIncome ? 'Contoh: Iuran warga bulan Juni' : 'Contoh: Bayar rekening listrik Juli'}
+              value={description}
+              onChange={e => setDesc(e.target.value)}
+            />
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <label style={fieldLabel}>Catatan</label>
+            <textarea
+              className="kbn-input"
+              style={{ ...inputBase, resize: 'vertical', minHeight: 70 }}
+              placeholder="Tambahkan catatan tambahan jika diperlukan..."
+              value={note}
+              onChange={e => setNote(e.target.value)}
+            />
+          </div>
+
+          {/* File upload */}
+          <div>
+            <label style={fieldLabel}>Lampiran Bukti</label>
+            <div
+              onClick={() => fileRef.current?.click()}
+              onMouseEnter={() => setHoverFile(true)}
+              onMouseLeave={() => setHoverFile(false)}
+              style={{
+                border: `1.5px dashed ${hoverFile ? SB : '#D4CFC4'}`,
+                borderRadius: 8, padding: '16px', textAlign: 'center', cursor: 'pointer',
+                background: hoverFile ? '#EBF4FB' : '#FAFAF9',
+                transition: 'border-color 0.12s, background 0.12s',
+              }}
+            >
+              {file ? (
+                <>
+                  <div style={{ fontSize: 18, marginBottom: 4 }}>📎</div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A18' }}>{file.name}</div>
+                  <div style={{ fontSize: 10.5, color: '#8B7E6E', marginTop: 2 }}>
+                    {(file.size / 1024).toFixed(0)} KB — klik untuk ganti
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 20, marginBottom: 4 }}>📎</div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#5C5650' }}>Klik untuk unggah</div>
+                  <div style={{ fontSize: 10.5, color: '#8B7E6E', marginTop: 2 }}>JPG, PNG, PDF — maks. 5 MB</div>
+                </>
+              )}
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*,.pdf"
+              style={{ display: 'none' }}
+              onChange={e => setFile(e.target.files?.[0] ?? null)}
+            />
+          </div>
+        </div>
+
+        {/* ── Preview pill ── */}
+        {parseAmount(amount) > 0 && selectedCat && (
+          <div style={{ marginBottom: 12, padding: '12px 16px', borderRadius: 10, background: '#fff', border: '1px solid #E8E0D4', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16 }}>{selectedCat.icon || (isIncome ? '💰' : '💸')}</span>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A18' }}>{description || selectedCat.name}</div>
+                <div style={{ fontSize: 10.5, color: '#8B7E6E' }}>
+                  {new Date(date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                </div>
+              </div>
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: isIncome ? '#15803D' : '#DC2626' }}>
+              {isIncome ? '+' : '−'}{fmt(parseAmount(amount))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Actions ── */}
+        <div style={{ display: 'flex', gap: 9, marginBottom: 32 }}>
+          <button
+            onClick={() => router.back()}
+            onMouseEnter={() => setHoverCancel(true)}
+            onMouseLeave={() => setHoverCancel(false)}
+            style={{
+              flex: 1, padding: '11px', borderRadius: 9, border: '1px solid #DDD8CF',
+              background: hoverCancel ? '#F5F2EB' : '#fff', color: '#5C5650',
+              fontSize: 13, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer',
+              transition: 'background 0.12s',
+            }}
+          >
+            Batal
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            onMouseEnter={() => setHoverSubmit(true)}
+            onMouseLeave={() => setHoverSubmit(false)}
+            style={{
+              flex: 2, padding: '11px', borderRadius: 9, border: 'none',
+              background: submitting
+                ? '#9C9892'
+                : isIncome
+                  ? (hoverSubmit ? '#15803D' : '#16A34A')
+                  : (hoverSubmit ? '#B91C1C' : '#DC2626'),
+              color: '#fff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+              cursor: submitting ? 'not-allowed' : 'pointer',
+              transition: 'background 0.12s',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            }}
+          >
+            {submitting ? (
+              <>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ animation: 'spin 1s linear infinite' }}>
+                  <circle cx="7" cy="7" r="5.5" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5"/>
+                  <path d="M7 1.5A5.5 5.5 0 0 1 12.5 7" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+                Menyimpan...
+              </>
+            ) : (
+              `Simpan ${isIncome ? 'Pemasukan' : 'Pengeluaran'}`
+            )}
+          </button>
+        </div>
+
+      </div>
+    </>
   )
 }

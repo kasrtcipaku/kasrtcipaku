@@ -124,11 +124,12 @@ export default function SetupPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
 
-    // Guard anti duplikat
+    // Guard anti duplikat — hanya cek kalau sudah punya workspace sebagai owner
     const { data: existingMember } = await supabase
       .from('workspace_members')
       .select('workspace_id')
       .eq('user_id', user.id)
+      .eq('role', 'owner')
       .limit(1)
 
     if (existingMember?.length) {

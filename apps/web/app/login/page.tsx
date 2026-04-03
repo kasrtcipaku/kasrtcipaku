@@ -13,6 +13,7 @@ export default async function LoginPage() {
       .from('workspace_members')
       .select('workspace_id')
       .eq('user_id', user.id)
+      .eq('role', 'owner')
       .limit(1)
       .maybeSingle()
     redirect(member?.workspace_id ? '/dashboard' : '/setup')

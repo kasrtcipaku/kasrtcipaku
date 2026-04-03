@@ -16,14 +16,11 @@ export async function GET(request: Request) {
           .from('workspace_members')
           .select('workspace_id, role')
           .eq('user_id', user.id)
+          .eq('role', 'owner')
           .limit(1)
           .maybeSingle()
 
-        // Punya workspace sebagai owner → dashboard
-        // Belum punya / bukan owner → setup (buat workspace baru)
-        const redirectTo = (member?.role === 'owner' && member?.workspace_id)
-          ? '/dashboard'
-          : '/setup'
+        const redirectTo = member?.workspace_id ? '/dashboard' : '/setup'
         return NextResponse.redirect(`${origin}${redirectTo}`)
       }
     }

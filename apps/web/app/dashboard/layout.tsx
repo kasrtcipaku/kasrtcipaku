@@ -139,31 +139,40 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       }
 
       // 2. Coba member_session cookie (anggota)
-      const res = await fetch('/api/member-session', { credentials: 'include' })
-      if (res.ok) {
-        const data = await res.json()
-        if (data.valid) {
-          // Cek apakah halaman ini diizinkan untuk member
-          const allowed = MEMBER_ALLOWED_HREFS.some(
-            href => pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
-          )
-          if (!allowed) {
-            router.replace('/dashboard')
-            return
+      // Retry sekali dengan delay kecil agar cookie sempat ter-set
+      let memberData: any = null
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 600))
+        try {
+          const res = await fetch('/api/member-session', { credentials: 'include' })
+          if (res.ok) {
+            const data = await res.json()
+            if (data.valid) { memberData = data; break }
           }
-          setInfo({
-            sessionType: 'member',
-            displayName: data.display_name || 'Anggota',
-            initials: (data.display_name?.[0] || 'A').toUpperCase(),
-            workspaceName: data.workspace_name,
-            role: data.role,
-          })
-          return
-        }
+        } catch { /* ignore, retry */ }
       }
 
-      // 3. Tidak ada session valid → redirect
-      router.push('/')
+      if (memberData) {
+        // Cek apakah halaman ini diizinkan untuk member
+        const allowed = MEMBER_ALLOWED_HREFS.some(
+          href => pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
+        )
+        if (!allowed) {
+          router.replace('/dashboard')
+          return
+        }
+        setInfo({
+          sessionType: 'member',
+          displayName: memberData.display_name || 'Anggota',
+          initials: (memberData.display_name?.[0] || 'A').toUpperCase(),
+          workspaceName: memberData.workspace_name,
+          role: memberData.role,
+        })
+        return
+      }
+
+      // 3. Tidak ada session valid → redirect ke login anggota
+      router.push('/login/anggota')
     }
 
     checkAuth()

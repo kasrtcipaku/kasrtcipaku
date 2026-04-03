@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -104,6 +104,7 @@ type CatItem = { name: string; icon: string; isCustom?: boolean }
 
 export default function SetupPage() {
   const router = useRouter()
+  const isSubmitting = useRef(false) // guard anti double-submit
 
   const [step, setStep]         = useState(1)
   const [wsName, setWsName]     = useState('')
@@ -201,6 +202,7 @@ export default function SetupPage() {
     if (wsErr || !ws) {
       setError(wsErr?.message || 'Gagal membuat workspace.')
       setCreating(false)
+      isSubmitting.current = false
       return
     }
 
@@ -222,11 +224,13 @@ export default function SetupPage() {
     if (catErr) {
       setError(catErr.message)
       setCreating(false)
+      isSubmitting.current = false
       return
     }
 
     setStep(3)
     setCreating(false)
+    // isSubmitting.current tetap true — tidak perlu reset karena flow sudah selesai
   }
 
   const selectedType = TYPE_OPTIONS.find(t => t.value === wsType)

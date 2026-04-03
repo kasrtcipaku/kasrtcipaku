@@ -129,6 +129,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const { data: { user } } = await supabase.auth.getUser()
 
       if (user) {
+        // Owner login via Google — bersihkan member_session jika ada (anti tumpang tindih)
+        await fetch('/api/member-logout', { method: 'POST', credentials: 'include' })
         setInfo({
           sessionType: 'owner',
           displayName: user.user_metadata?.full_name || 'Pengguna',
@@ -139,48 +141,40 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       }
 
       // 2. Coba member_session cookie (anggota)
-      // Retry sekali dengan delay kecil agar cookie sempat ter-set
-      let memberData: any = null
-      for (let attempt = 0; attempt < 2; attempt++) {
-        if (attempt > 0) await new Promise(r => setTimeout(r, 600))
-        try {
-          const res = await fetch('/api/member-session', { credentials: 'include' })
-          if (res.ok) {
-            const data = await res.json()
-            if (data.valid) { memberData = data; break }
+      const res = await fetch('/api/member-session', { credentials: 'include' })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.valid) {
+          // Cek apakah halaman ini diizinkan untuk member
+          const allowed = MEMBER_ALLOWED_HREFS.some(
+            href => pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
+          )
+          if (!allowed) {
+            router.replace('/dashboard')
+            return
           }
-        } catch { /* ignore, retry */ }
-      }
-
-      if (memberData) {
-        // Cek apakah halaman ini diizinkan untuk member
-        const allowed = MEMBER_ALLOWED_HREFS.some(
-          href => pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
-        )
-        if (!allowed) {
-          router.replace('/dashboard')
+          setInfo({
+            sessionType: 'member',
+            displayName: data.display_name || 'Anggota',
+            initials: (data.display_name?.[0] || 'A').toUpperCase(),
+            workspaceName: data.workspace_name,
+            role: data.role,
+          })
           return
         }
-        setInfo({
-          sessionType: 'member',
-          displayName: memberData.display_name || 'Anggota',
-          initials: (memberData.display_name?.[0] || 'A').toUpperCase(),
-          workspaceName: memberData.workspace_name,
-          role: memberData.role,
-        })
-        return
       }
 
-      // 3. Tidak ada session valid → redirect ke login anggota
-      router.push('/login/anggota')
+      // 3. Tidak ada session valid → redirect
+      router.push('/')
     }
 
     checkAuth()
   }, [pathname])
 
   const handleLogout = async () => {
+    // Selalu hapus member_session cookie terlebih dahulu (bersihkan sisa session lama)
+    await fetch('/api/member-logout', { method: 'POST', credentials: 'include' })
     if (info?.sessionType === 'member') {
-      await fetch('/api/member-logout', { method: 'POST', credentials: 'include' })
       router.push('/login/anggota')
     } else {
       const supabase = createClient()

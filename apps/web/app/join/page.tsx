@@ -29,29 +29,44 @@ function JoinContent() {
   useEffect(() => {
     if (!token) {
       setStatus('error')
-      setErrorMsg('Token undangan tidak valid.')
+      setErrorMsg('Token undangan tidak ditemukan di URL. Pastikan link undangan lengkap.')
       return
     }
 
+    // Timeout 10 detik — kalau masih loading, tampilkan error
+    const timeout = setTimeout(() => {
+      setStatus('error')
+      setErrorMsg('Koneksi lambat atau gagal. Coba refresh halaman ini.')
+    }, 10000)
+
     const supabase = createClient()
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) {
-        sessionStorage.setItem('invite_token', token)
-        router.push(`/login?redirect=/join?token=${token}`)
+    supabase.auth.getUser().then(async ({ data: { user }, error: authErr }) => {
+      if (authErr || !user) {
+        clearTimeout(timeout)
+        const redirectUrl = encodeURIComponent(`/join?token=${token}`)
+        router.push(`/login?redirect=${redirectUrl}`)
         return
       }
 
-      const { data } = await supabase
+      const { data, error: invErr } = await supabase
         .from('invitations')
         .select('role, workspaces(name)')
         .eq('token', token)
         .is('accepted_at', null)
         .gt('expires_at', new Date().toISOString())
-        .single()
+        .maybeSingle()
+
+      clearTimeout(timeout)
+
+      if (invErr) {
+        setStatus('error')
+        setErrorMsg(`Error mengambil undangan: ${invErr.message}`)
+        return
+      }
 
       if (!data) {
         setStatus('error')
-        setErrorMsg('Undangan tidak ditemukan atau sudah expired.')
+        setErrorMsg('Undangan tidak ditemukan, sudah digunakan, atau sudah expired.')
         return
       }
 
@@ -60,6 +75,10 @@ function JoinContent() {
         role: data.role,
       })
       setStatus('ready')
+    }).catch((e) => {
+      clearTimeout(timeout)
+      setStatus('error')
+      setErrorMsg(`Terjadi kesalahan: ${e?.message || 'Unknown error'}`)
     })
   }, [token])
 
@@ -144,8 +163,14 @@ function JoinContent() {
           <h2 className="text-base font-semibold text-[#0f0e0c] mb-2">Undangan tidak valid</h2>
           <p className="text-sm text-[#7a7469] mb-6">{errorMsg}</p>
           <button
+            onClick={() => window.location.reload()}
+            className="btn-press w-full py-2.5 bg-[#2d5a27] text-white rounded-xl text-sm font-semibold hover:bg-[#1e3d1a] mb-3"
+          >
+            🔄 Coba Lagi
+          </button>
+          <button
             onClick={() => router.push('/dashboard')}
-            className="btn-press w-full py-2.5 bg-[#2d5a27] text-white rounded-xl text-sm font-semibold hover:bg-[#1e3d1a]"
+            className="btn-press w-full py-2.5 border border-[#d4cfc4] text-[#7a7469] rounded-xl text-sm hover:text-[#0f0e0c] transition-colors"
           >
             Ke Dashboard
           </button>

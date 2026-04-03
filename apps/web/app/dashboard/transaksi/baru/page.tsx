@@ -1,603 +1,482 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, useRef } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-const TYPE_OPTIONS = [
-  { value: 'rt',       label: 'RT / RW',        icon: '🏘️', desc: 'Iuran warga, kas, tagihan listrik & air' },
-  { value: 'kosan',    label: 'Kosan',           icon: '🏠', desc: 'Sewa kamar, listrik, internet, perawatan' },
-  { value: 'warteg',   label: 'Warteg / Usaha',  icon: '🍽️', desc: 'Pendapatan harian, bahan baku, gaji' },
-  { value: 'personal', label: 'Personal',        icon: '👤', desc: 'Keuangan pribadi & keluarga' },
-]
+/* ── Colour tokens ── */
+const SB     = '#7AAACE'
+const SB_DRK = '#5E96C0'
 
-// Default categories per workspace type
-// Each item: { name, icon }
-const DEFAULT_CATS: Record<string, {
-  income:  { name: string; icon: string }[]
-  expense: { name: string; icon: string }[]
-}> = {
-  rt: {
-    income:  [
-      { name: 'Iuran Warga',   icon: '👥' },
-      { name: 'Kas RT',        icon: '🏛️' },
-      { name: 'Donasi',        icon: '🎁' },
-      { name: 'Denda',         icon: '⚖️' },
-      { name: 'Sumbangan',     icon: '🤝' },
-      { name: 'Lain-lain',     icon: '💰' },
-    ],
-    expense: [
-      { name: 'Listrik',       icon: '💡' },
-      { name: 'Air',           icon: '💧' },
-      { name: 'Keamanan',      icon: '🔒' },
-      { name: 'Kebersihan',    icon: '🧹' },
-      { name: 'Administrasi',  icon: '📋' },
-      { name: 'Sosial',        icon: '🏥' },
-      { name: 'Perawatan',     icon: '🔧' },
-      { name: 'Lain-lain',     icon: '💸' },
-    ],
-  },
-  kosan: {
-    income:  [
-      { name: 'Sewa Kamar',       icon: '🏠' },
-      { name: 'Deposit',          icon: '💼' },
-      { name: 'Listrik Tenant',   icon: '💡' },
-      { name: 'Internet Tenant',  icon: '🌐' },
-      { name: 'Lain-lain',        icon: '💰' },
-    ],
-    expense: [
-      { name: 'Listrik',    icon: '💡' },
-      { name: 'Air',        icon: '💧' },
-      { name: 'Internet',   icon: '🌐' },
-      { name: 'Perawatan',  icon: '🔧' },
-      { name: 'Furnitur',   icon: '🪑' },
-      { name: 'Kebersihan', icon: '🧹' },
-      { name: 'Lain-lain',  icon: '💸' },
-    ],
-  },
-  warteg: {
-    income:  [
-      { name: 'Pendapatan Harian', icon: '🍽️' },
-      { name: 'Catering',          icon: '🍱' },
-      { name: 'Pesanan Online',    icon: '📦' },
-      { name: 'Lain-lain',         icon: '💰' },
-    ],
-    expense: [
-      { name: 'Bahan Baku',     icon: '🛒' },
-      { name: 'Gaji Karyawan',  icon: '👤' },
-      { name: 'Listrik',        icon: '💡' },
-      { name: 'Gas',            icon: '🔥' },
-      { name: 'Peralatan',      icon: '🔧' },
-      { name: 'Sewa Tempat',    icon: '🏠' },
-      { name: 'Lain-lain',      icon: '💸' },
-    ],
-  },
-  personal: {
-    income:  [
-      { name: 'Gaji',       icon: '💼' },
-      { name: 'Freelance',  icon: '💻' },
-      { name: 'Investasi',  icon: '📈' },
-      { name: 'Hadiah',     icon: '🎁' },
-      { name: 'Lain-lain',  icon: '💰' },
-    ],
-    expense: [
-      { name: 'Makan',      icon: '🍽️' },
-      { name: 'Transport',  icon: '🚗' },
-      { name: 'Belanja',    icon: '🛍️' },
-      { name: 'Tagihan',    icon: '📄' },
-      { name: 'Hiburan',    icon: '🎉' },
-      { name: 'Kesehatan',  icon: '🏥' },
-      { name: 'Tabungan',   icon: '🏦' },
-      { name: 'Lain-lain',  icon: '💸' },
-    ],
-  },
+/* ── Helpers ── */
+const today = () => new Date().toISOString().split('T')[0]
+const fmt   = (n: number) =>
+  new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n)
+
+function parseAmount(raw: string): number {
+  return parseInt(raw.replace(/\D/g, ''), 10) || 0
+}
+function displayAmount(raw: string): string {
+  const n = parseAmount(raw)
+  if (!n) return ''
+  return n.toLocaleString('id-ID')
 }
 
-// Icon pool untuk kategori custom baru
-const CUSTOM_ICONS = ['⭐', '🔖', '📌', '🗂️', '📝', '🎯', '🔑', '💎']
+type DbCategory = {
+  id: string
+  name: string
+  icon: string
+  type: 'income' | 'expense'
+}
 
-const SB    = '#7AAACE'
-const GREEN = '#2d5a27'
+/* ── Component ── */
+export default function NewTransactionPage() {
+  const router  = useRouter()
+  const params  = useSearchParams()
+  const fileRef = useRef<HTMLInputElement>(null)
 
-// Tipe data untuk satu kategori di state
-type CatItem = { name: string; icon: string; isCustom?: boolean }
+  const [workspace,   setWorkspace]   = useState<any>(null)
+  const [loading,     setLoading]     = useState(true)
+  const [submitting,  setSubmitting]  = useState(false)
+  const [error,       setError]       = useState<string | null>(null)
 
-export default function SetupPage() {
-  const router = useRouter()
+  /* Semua kategori dari DB, difilter per tipe */
+  const [dbCategories, setDbCategories] = useState<DbCategory[]>([])
 
-  const [step, setStep]         = useState(1)
-  const [wsName, setWsName]     = useState('')
-  const [wsType, setWsType]     = useState('rt')
+  /* form state */
+  const [type,        setType]        = useState<'income' | 'expense'>(
+    (params.get('type') as 'income' | 'expense') || 'expense'
+  )
+  const [amount,      setAmount]      = useState('')
+  const [date,        setDate]        = useState(today())
+  const [ref,         setRef]         = useState('')
+  const [categoryId,  setCategoryId]  = useState<string | null>(null)
+  const [description, setDesc]        = useState('')
+  const [note,        setNote]        = useState('')
+  const [file,        setFile]        = useState<File | null>(null)
 
-  // Menyimpan kategori yang *dipilih* (aktif) — berisi objek { name, icon }
-  const [incomeCats,  setIncomeCats]  = useState<CatItem[]>([])
-  const [expenseCats, setExpenseCats] = useState<CatItem[]>([])
+  /* hover states */
+  const [hoverCancel,  setHoverCancel]  = useState(false)
+  const [hoverSubmit,  setHoverSubmit]  = useState(false)
+  const [hoverFile,    setHoverFile]    = useState(false)
 
-  // Kategori custom yang ditambahkan user (di luar DEFAULT_CATS)
-  const [customIncome,  setCustomIncome]  = useState<CatItem[]>([])
-  const [customExpense, setCustomExpense] = useState<CatItem[]>([])
-
-  const [newCatName, setNewCatName]   = useState('')
-  const [addingFor,  setAddingFor]    = useState<'income' | 'expense' | null>(null)
-  const [creating,   setCreating]     = useState(false)
-  const [error,      setError]        = useState('')
-
-  // Redirect kalau sudah punya workspace
+  /* ── Load workspace & categories dari DB ── */
   useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
+    ;(async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
-      const { data, error } = await supabase
-        .from('workspaces')
-        .select('id, workspace_members!inner(user_id)')
-        .eq('workspace_members.user_id', user.id)
+
+      const { data: memberships } = await supabase
+        .from('workspace_members')
+        .select('workspace_id, workspaces(id, name, type)')
+        .eq('user_id', user.id)
         .limit(1)
-      if (!error && data?.length) router.push('/dashboard')
-    })
+
+      if (!memberships || memberships.length === 0) { router.push('/setup'); return }
+
+      const ws = (memberships[0] as any).workspaces
+      setWorkspace(ws)
+
+      // Ambil semua kategori aktif dari workspace ini — termasuk yang custom dari setup
+      const { data: cats } = await supabase
+        .from('categories')
+        .select('id, name, icon, type')
+        .eq('workspace_id', ws.id)
+        .eq('is_active', true)
+        .order('type', { ascending: true })
+        .order('name', { ascending: true })
+
+      if (cats && cats.length > 0) {
+        setDbCategories(cats as DbCategory[])
+      }
+      setLoading(false)
+    })()
   }, [])
 
-  // Reset ke default saat tipe berubah
+  /* Reset pilihan kategori ketika tipe berubah */
   useEffect(() => {
-    const cats = DEFAULT_CATS[wsType]
-    setIncomeCats([...cats.income])   // semua default aktif
-    setExpenseCats([...cats.expense])
-    setCustomIncome([])
-    setCustomExpense([])
-  }, [wsType])
+    setCategoryId(null)
+  }, [type])
 
-  // Toggle aktif/nonaktif satu kategori
-  const toggleCat = (type: 'income' | 'expense', item: CatItem) => {
-    const setter = type === 'income' ? setIncomeCats : setExpenseCats
-    setter(prev => {
-      const exists = prev.some(c => c.name === item.name)
-      return exists ? prev.filter(c => c.name !== item.name) : [...prev, item]
-    })
-  }
+  /* Kategori yang relevan untuk tipe aktif */
+  const filteredCats = dbCategories.filter(c => c.type === type)
 
-  // Tambah kategori custom
-  const addCustomCat = (type: 'income' | 'expense') => {
-    const val = newCatName.trim()
-    if (!val) return
+  /* Kategori yang sedang dipilih */
+  const selectedCat = filteredCats.find(c => c.id === categoryId) ?? null
 
-    const randomIcon = CUSTOM_ICONS[Math.floor(Math.random() * CUSTOM_ICONS.length)]
-    const newItem: CatItem = { name: val, icon: randomIcon, isCustom: true }
+  /* ── Submit ── */
+  const handleSubmit = async () => {
+    setError(null)
+    if (!description.trim()) { setError('Keterangan tidak boleh kosong.'); return }
+    if (parseAmount(amount) === 0) { setError('Jumlah tidak boleh nol.'); return }
+    if (!categoryId) { setError('Pilih kategori terlebih dahulu.'); return }
 
-    if (type === 'income') {
-      // Cek duplikat di semua kategori income
-      const allNames = [...DEFAULT_CATS[wsType].income.map(c => c.name), ...customIncome.map(c => c.name)]
-      if (allNames.includes(val)) { setNewCatName(''); setAddingFor(null); return }
-      setCustomIncome(prev => [...prev, newItem])
-      setIncomeCats(prev => [...prev, newItem])   // langsung aktif
-    } else {
-      const allNames = [...DEFAULT_CATS[wsType].expense.map(c => c.name), ...customExpense.map(c => c.name)]
-      if (allNames.includes(val)) { setNewCatName(''); setAddingFor(null); return }
-      setCustomExpense(prev => [...prev, newItem])
-      setExpenseCats(prev => [...prev, newItem])
-    }
-
-    setNewCatName('')
-    setAddingFor(null)
-  }
-
-  const handleCreate = async () => {
-    if (!wsName.trim()) { setError('Nama workspace wajib diisi.'); return }
-    if (incomeCats.length === 0 && expenseCats.length === 0) {
-      setError('Pilih minimal satu kategori.'); return
-    }
-
-    setCreating(true)
-    setError('')
+    setSubmitting(true)
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/login'); return }
 
-    // 1. Buat workspace
-    const { data: ws, error: wsErr } = await supabase
-      .from('workspaces')
-      .insert({ name: wsName.trim(), type: wsType, owner_id: user.id })
-      .select('id')
-      .single()
-
-    if (wsErr || !ws) {
-      setError(wsErr?.message || 'Gagal membuat workspace.')
-      setCreating(false)
-      return
+    /* Upload attachment */
+    let attachmentUrl: string | null = null
+    if (file) {
+      const path = `${workspace.id}/${Date.now()}_${file.name}`
+      const { data: uploaded } = await supabase.storage
+        .from('transaction-attachments')
+        .upload(path, file)
+      if (uploaded) {
+        const { data: { publicUrl } } = supabase.storage
+          .from('transaction-attachments')
+          .getPublicUrl(uploaded.path)
+        attachmentUrl = publicUrl
+      }
     }
 
-    // 2. Tambahkan user sebagai owner
-    await supabase.from('workspace_members').insert({
-      workspace_id: ws.id,
-      user_id: user.id,
-      role: 'owner',
+    const { error: insertError } = await supabase.from('transactions').insert({
+      workspace_id:   workspace.id,
+      user_id:        user!.id,
+      type,
+      amount:         parseAmount(amount),
+      date,
+      description:    description.trim(),
+      note:           note.trim() || null,
+      category_id:    categoryId,
+      reference:      ref.trim() || null,
+      attachment_url: attachmentUrl,
     })
 
-    // 3. Insert SEMUA kategori yang aktif (dipilih) ke Supabase
-    //    Menyertakan icon supaya halaman transaksi bisa tampil dengan benar
-    const catPayload = [
-      ...incomeCats.map(c  => ({ workspace_id: ws.id, name: c.name,  icon: c.icon,  type: 'income',  is_active: true })),
-      ...expenseCats.map(c => ({ workspace_id: ws.id, name: c.name,  icon: c.icon,  type: 'expense', is_active: true })),
-    ]
-    const { error: catErr } = await supabase.from('categories').insert(catPayload)
-
-    if (catErr) {
-      setError(catErr.message)
-      setCreating(false)
-      return
+    if (insertError) {
+      setError(insertError.message)
+      setSubmitting(false)
+    } else {
+      router.push('/dashboard/transaksi?new=1')
     }
-
-    setStep(3)
-    setCreating(false)
   }
 
-  const selectedType = TYPE_OPTIONS.find(t => t.value === wsType)
+  /* ── Styles ── */
+  const card: React.CSSProperties = {
+    background: '#fff',
+    borderRadius: 12,
+    border: '1px solid #E8E0D4',
+    padding: '20px 22px',
+    marginBottom: 12,
+  }
+  const sectionTitle: React.CSSProperties = {
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#8B7E6E',
+    textTransform: 'uppercase',
+    letterSpacing: '0.07em',
+    margin: '0 0 14px',
+  }
+  const fieldLabel: React.CSSProperties = {
+    display: 'block',
+    fontSize: 11.5,
+    fontWeight: 500,
+    color: '#5C5650',
+    marginBottom: 5,
+  }
+  const inputBase: React.CSSProperties = {
+    width: '100%',
+    padding: '9px 12px',
+    border: '1px solid #DDD8CF',
+    borderRadius: 8,
+    fontSize: 13,
+    fontFamily: 'inherit',
+    color: '#1A1A18',
+    background: '#fff',
+    outline: 'none',
+    boxSizing: 'border-box',
+  }
 
-  // Helper: apakah item aktif
-  const isActive = (type: 'income' | 'expense', item: CatItem) =>
-    type === 'income'
-      ? incomeCats.some(c => c.name === item.name)
-      : expenseCats.some(c => c.name === item.name)
+  const isIncome = type === 'income'
 
-  return (
-    <div className="setup-outer" style={{
-      minHeight: '100vh', background: '#FAFAF9',
-      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-      padding: '24px 16px', fontFamily: 'DM Sans, system-ui, sans-serif',
-    }}>
-      <style>{`
-        @keyframes fadeUp { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:none} }
-        @keyframes scaleIn { from{opacity:0;transform:scale(0.95)} to{opacity:1;transform:scale(1)} }
-        .fade-up { animation: fadeUp 0.35s cubic-bezier(0.22,1,0.36,1) forwards; }
-        .scale-in { animation: scaleIn 0.4s cubic-bezier(0.34,1.56,0.64,1) forwards; }
-        .btn-press:active { transform: scale(0.95); }
-        .btn-press { transition: transform 0.12s, background 0.15s, border-color 0.15s; }
-        .type-card { transition: border-color 0.15s, background 0.15s; }
-        .type-card:hover { border-color: #aac8e0 !important; background: #f0f6fb !important; }
-        .cat-chip { transition: all 0.15s; cursor: pointer; user-select: none; }
-        .cat-chip:hover { opacity: 0.8; }
-        input:focus, textarea:focus { outline: none; border-color: #aac8e0 !important; }
-        .setup-card::-webkit-scrollbar { width: 4px; }
-        .setup-card::-webkit-scrollbar-track { background: transparent; }
-        .setup-card::-webkit-scrollbar-thumb { background: #E3DED6; border-radius: 4px; }
-        @media (min-height: 700px) { .setup-outer { align-items: center !important; } }
-      `}</style>
-
-      <div className="fade-up setup-card" style={{
-        background: '#fff', borderRadius: 20, border: '1px solid #E3DED6',
-        padding: '36px 32px', width: '100%', maxWidth: 480,
-        boxShadow: '0 4px 24px rgba(0,0,0,0.06)',
-        maxHeight: 'calc(100vh - 48px)', overflowY: 'auto',
-      }}>
-        {/* Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: SB, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 16, fontFamily: 'Georgia,serif', fontWeight: 700 }}>K</div>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: '#0f0e0c', letterSpacing: '-0.2px' }}>KasRT</div>
-            <div style={{ fontSize: 11, color: '#9C9892', marginTop: 1 }}>Keuangan Bersama</div>
-          </div>
-        </div>
-
-        {/* Step indicator */}
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 28 }}>
-          {[
-            { n: 1, label: 'Workspace' },
-            { n: 2, label: 'Kategori' },
-            { n: 3, label: 'Selesai' },
-          ].map((s, i) => (
-            <div key={s.n} style={{ display: 'flex', alignItems: 'center', flex: i < 2 ? 1 : 'none' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{
-                  width: 24, height: 24, borderRadius: '50%', fontSize: 11, fontWeight: 600,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  background: step > s.n ? GREEN : step === s.n ? SB : '#F0EDE6',
-                  color: step >= s.n ? '#fff' : '#9C9892',
-                }}>
-                  {step > s.n ? '✓' : s.n}
-                </div>
-                <span style={{ fontSize: 12, fontWeight: step === s.n ? 600 : 400, color: step === s.n ? '#0f0e0c' : '#9C9892' }}>
-                  {s.label}
-                </span>
-              </div>
-              {i < 2 && <div style={{ flex: 1, height: 1, background: '#E3DED6', margin: '0 10px' }} />}
-            </div>
-          ))}
-        </div>
-
-        {/* ─── STEP 1 ─── */}
-        {step === 1 && (
-          <div>
-            <h2 style={{ fontSize: 22, fontWeight: 600, color: '#0f0e0c', marginBottom: 6, letterSpacing: '-0.3px' }}>
-              Buat workspace
-            </h2>
-            <p style={{ fontSize: 13, color: '#7a7469', marginBottom: 24, lineHeight: 1.6 }}>
-              Workspace adalah ruang kerja kamu. Bisa untuk RT, kosan, warung, atau keuangan pribadi.
-            </p>
-
-            <label style={{ fontSize: 11, fontWeight: 600, color: '#7a7469', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: 6 }}>
-              Nama workspace
-            </label>
-            <input
-              type="text"
-              value={wsName}
-              onChange={e => setWsName(e.target.value)}
-              placeholder="Contoh: RT 05 Kel. Merdeka"
-              style={{
-                width: '100%', padding: '10px 14px', border: '1px solid #E3DED6',
-                borderRadius: 10, fontSize: 14, fontFamily: 'inherit', color: '#0f0e0c',
-                background: '#FAFAF8', marginBottom: 20, boxSizing: 'border-box',
-              }}
-            />
-
-            <label style={{ fontSize: 11, fontWeight: 600, color: '#7a7469', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: 10 }}>
-              Tipe workspace
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 24 }}>
-              {TYPE_OPTIONS.map(t => (
-                <div
-                  key={t.value}
-                  className="type-card btn-press"
-                  onClick={() => setWsType(t.value)}
-                  style={{
-                    border: wsType === t.value ? `2px solid ${SB}` : '1px solid #E3DED6',
-                    borderRadius: 12, padding: '14px 12px', cursor: 'pointer',
-                    background: wsType === t.value ? '#f0f6fb' : '#FAFAF8',
-                  }}
-                >
-                  <div style={{ fontSize: 22, marginBottom: 8 }}>{t.icon}</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#0f0e0c', marginBottom: 3 }}>{t.label}</div>
-                  <div style={{ fontSize: 11.5, color: '#7a7469', lineHeight: 1.4 }}>{t.desc}</div>
-                </div>
-              ))}
-            </div>
-
-            <button
-              onClick={() => {
-                if (!wsName.trim()) { setError('Nama workspace wajib diisi.'); return }
-                setError('')
-                setStep(2)
-              }}
-              className="btn-press"
-              style={{
-                width: '100%', padding: '12px', background: GREEN, color: '#fff',
-                border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600,
-                cursor: 'pointer', fontFamily: 'inherit',
-              }}
-            >
-              Lanjut →
-            </button>
-            {error && <p style={{ fontSize: 12, color: '#dc2626', marginTop: 10, textAlign: 'center' }}>{error}</p>}
-          </div>
-        )}
-
-        {/* ─── STEP 2 ─── */}
-        {step === 2 && (
-          <div>
-            <h2 style={{ fontSize: 22, fontWeight: 600, color: '#0f0e0c', marginBottom: 6, letterSpacing: '-0.3px' }}>
-              Pilih kategori
-            </h2>
-            <p style={{ fontSize: 13, color: '#7a7469', marginBottom: 24, lineHeight: 1.6 }}>
-              Kategori default untuk <strong style={{ color: '#0f0e0c' }}>{selectedType?.label}</strong>.
-              Aktifkan yang relevan, nonaktifkan yang tidak perlu. Bisa diubah kapan saja.
-            </p>
-
-            {/* ── Income ── */}
-            <CatSection
-              label="Pemasukan"
-              labelColor="#16a34a"
-              defaults={DEFAULT_CATS[wsType].income}
-              customs={customIncome}
-              activeCats={incomeCats}
-              onToggle={item => toggleCat('income', item)}
-              addingFor={addingFor}
-              addingTarget="income"
-              onClickAdd={() => setAddingFor(addingFor === 'income' ? null : 'income')}
-              newCatName={newCatName}
-              onNewCatChange={setNewCatName}
-              onAddConfirm={() => addCustomCat('income')}
-              addBtnColor={SB}
-              confirmBtnColor={GREEN}
-            />
-
-            {/* ── Expense ── */}
-            <CatSection
-              label="Pengeluaran"
-              labelColor="#dc2626"
-              defaults={DEFAULT_CATS[wsType].expense}
-              customs={customExpense}
-              activeCats={expenseCats}
-              onToggle={item => toggleCat('expense', item)}
-              addingFor={addingFor}
-              addingTarget="expense"
-              onClickAdd={() => setAddingFor(addingFor === 'expense' ? null : 'expense')}
-              newCatName={newCatName}
-              onNewCatChange={setNewCatName}
-              onAddConfirm={() => addCustomCat('expense')}
-              addBtnColor={SB}
-              confirmBtnColor="#dc2626"
-            />
-
-            {/* Ringkasan aktif */}
-            <div style={{ fontSize: 11.5, color: '#7a7469', marginBottom: 16, textAlign: 'center' }}>
-              {incomeCats.length} pemasukan · {expenseCats.length} pengeluaran dipilih
-            </div>
-
-            {error && <p style={{ fontSize: 12, color: '#dc2626', marginBottom: 12 }}>{error}</p>}
-
-            <button onClick={handleCreate} disabled={creating} className="btn-press" style={{
-              width: '100%', padding: '12px', background: creating ? '#a3c9a0' : GREEN,
-              color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600,
-              cursor: creating ? 'not-allowed' : 'pointer', fontFamily: 'inherit', marginBottom: 10,
-            }}>
-              {creating ? 'Membuat workspace...' : '✓ Buat Workspace'}
-            </button>
-            <button onClick={() => { setStep(1); setError('') }} className="btn-press" style={{
-              width: '100%', padding: '10px', background: 'transparent', color: '#7a7469',
-              border: '1px solid #E3DED6', borderRadius: 12, fontSize: 13, fontWeight: 500,
-              cursor: 'pointer', fontFamily: 'inherit',
-            }}>
-              ← Kembali
-            </button>
-          </div>
-        )}
-
-        {/* ─── STEP 3 ─── */}
-        {step === 3 && (
-          <div className="scale-in" style={{ textAlign: 'center' }}>
-            <div style={{
-              width: 64, height: 64, borderRadius: '50%', background: '#e8f4e8',
-              border: '2px solid #b8d9b4', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              margin: '0 auto 20px', fontSize: 28,
-            }}>✓</div>
-            <h2 style={{ fontSize: 22, fontWeight: 600, color: '#0f0e0c', marginBottom: 6, letterSpacing: '-0.3px' }}>
-              Workspace siap!
-            </h2>
-            <p style={{ fontSize: 13, color: '#7a7469', marginBottom: 24, lineHeight: 1.6 }}>
-              Kamu sudah bisa mulai mencatat transaksi dan mengundang anggota ke workspace.
-            </p>
-
-            <div style={{
-              background: '#FAFAF8', border: '1px solid #E3DED6', borderRadius: 12,
-              padding: 16, marginBottom: 24, textAlign: 'left',
-            }}>
-              {[
-                { k: 'Nama',                v: wsName },
-                { k: 'Tipe',                v: selectedType?.label },
-                { k: 'Kategori pemasukan',  v: `${incomeCats.length} kategori` },
-                { k: 'Kategori pengeluaran',v: `${expenseCats.length} kategori` },
-              ].map(r => (
-                <div key={r.k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #F0EDE6' }}>
-                  <span style={{ fontSize: 12.5, color: '#7a7469' }}>{r.k}</span>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: '#0f0e0c' }}>{r.v}</span>
-                </div>
-              ))}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8 }}>
-                <span style={{ fontSize: 12.5, color: '#7a7469' }}>Status</span>
-                <span style={{ fontSize: 11.5, fontWeight: 600, background: '#e8f4e8', color: '#2d5a27', border: '1px solid #b8d9b4', padding: '3px 10px', borderRadius: 99 }}>Aktif</span>
-              </div>
-            </div>
-
-            <button onClick={() => router.push('/dashboard')} className="btn-press" style={{
-              width: '100%', padding: '12px', background: GREEN, color: '#fff',
-              border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600,
-              cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10,
-            }}>
-              Ke Dashboard →
-            </button>
-            <button onClick={() => router.push('/dashboard/anggota')} className="btn-press" style={{
-              width: '100%', padding: '10px', background: 'transparent', color: '#7a7469',
-              border: '1px solid #E3DED6', borderRadius: 12, fontSize: 13, fontWeight: 500,
-              cursor: 'pointer', fontFamily: 'inherit',
-            }}>
-              Undang anggota sekarang
-            </button>
-          </div>
-        )}
-      </div>
+  /* ── Loading ── */
+  if (loading) return (
+    <div style={{ minHeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <p style={{ fontSize: 13, color: '#8B7E6E', fontFamily: 'DM Sans, system-ui, sans-serif' }}>Memuat kategori...</p>
     </div>
   )
-}
-
-/* ─── Sub-komponen CatSection ─── */
-type CatSectionProps = {
-  label: string
-  labelColor: string
-  defaults: { name: string; icon: string }[]
-  customs: { name: string; icon: string }[]
-  activeCats: { name: string; icon: string }[]
-  onToggle: (item: { name: string; icon: string }) => void
-  addingFor: 'income' | 'expense' | null
-  addingTarget: 'income' | 'expense'
-  onClickAdd: () => void
-  newCatName: string
-  onNewCatChange: (v: string) => void
-  onAddConfirm: () => void
-  addBtnColor: string
-  confirmBtnColor: string
-}
-
-function CatSection({
-  label, labelColor, defaults, customs, activeCats,
-  onToggle, addingFor, addingTarget, onClickAdd,
-  newCatName, onNewCatChange, onAddConfirm,
-  addBtnColor, confirmBtnColor,
-}: CatSectionProps) {
-  const isActive = (name: string) => activeCats.some(c => c.name === name)
-  const isIncome = addingTarget === 'income'
-
-  const chipStyle = (active: boolean): React.CSSProperties => ({
-    padding: '5px 12px', borderRadius: 99, fontSize: 12.5, fontWeight: 500,
-    display: 'flex', alignItems: 'center', gap: 5,
-    border: active
-      ? isIncome ? '1.5px solid #b8d9b4' : '1.5px solid #fecaca'
-      : '1px solid #E3DED6',
-    background: active
-      ? isIncome ? '#e8f4e8' : '#fef2f2'
-      : '#F5F2EB',
-    color: active
-      ? isIncome ? '#2d5a27' : '#dc2626'
-      : '#7a7469',
-  })
 
   return (
-    <div style={{ marginBottom: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <label style={{ fontSize: 11, fontWeight: 600, color: labelColor, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-          {isIncome ? '↑' : '↓'} {label}
-        </label>
-        <button
-          onClick={onClickAdd}
-          style={{ fontSize: 11, color: addBtnColor, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}
-        >
-          {addingFor === addingTarget ? '✕ Tutup' : '+ Tambah'}
-        </button>
-      </div>
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap');
+        *, *::before, *::after { box-sizing: border-box; }
+        .kbn-input { transition: border-color 0.12s, box-shadow 0.12s; }
+        .kbn-input:focus { border-color: ${SB} !important; box-shadow: 0 0 0 3px rgba(122,170,206,0.15) !important; }
+        .kbn-cat { transition: all 0.12s; cursor: pointer; }
+        .kbn-cat:hover { border-color: ${SB}; background: #EBF4FB; }
+        .kbn-cat.active-income  { border-color: #16A34A; background: #DCFCE7; box-shadow: 0 0 0 2px rgba(22,163,74,0.15); }
+        .kbn-cat.active-expense { border-color: #DC2626; background: #FEE2E2; box-shadow: 0 0 0 2px rgba(220,38,38,0.15); }
+        .kbn-type-income  { background: #F0FDF4; border-color: #BBF7D0; color: #15803D; }
+        .kbn-type-income.active  { background: #DCFCE7; border-color: #16A34A; box-shadow: 0 0 0 3px rgba(22,163,74,0.12); }
+        .kbn-type-expense { background: #FEF2F2; border-color: #FECACA; color: #DC2626; }
+        .kbn-type-expense.active { background: #FEE2E2; border-color: #DC2626; box-shadow: 0 0 0 3px rgba(220,38,38,0.12); }
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-        {/* Default categories */}
-        {defaults.map(cat => (
-          <div key={cat.name} className="cat-chip" onClick={() => onToggle(cat)} style={chipStyle(isActive(cat.name))}>
-            <span>{cat.icon}</span>
-            <span>{cat.name}</span>
-          </div>
-        ))}
-        {/* Custom categories */}
-        {customs.map(cat => (
-          <div key={cat.name} className="cat-chip" onClick={() => onToggle(cat)} style={{
-            ...chipStyle(isActive(cat.name)),
-            borderStyle: 'dashed',
-          }}>
-            <span>{cat.icon}</span>
-            <span>{cat.name}</span>
-            {isActive(cat.name) && <span style={{ fontSize: 10 }}>✕</span>}
-          </div>
-        ))}
-      </div>
+      <div style={{ maxWidth: 620, margin: '0 auto', fontFamily: 'DM Sans, system-ui, sans-serif' }}>
 
-      {addingFor === addingTarget && (
-        <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-          <input
-            type="text"
-            value={newCatName}
-            onChange={e => onNewCatChange(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && onAddConfirm()}
-            placeholder="Nama kategori baru..."
-            style={{
-              flex: 1, padding: '7px 10px', border: '1px solid #E3DED6',
-              borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit',
-            }}
-            autoFocus
-          />
+        {/* ── Header ── */}
+        <div style={{ marginBottom: 22 }}>
           <button
-            onClick={onAddConfirm}
+            onClick={() => router.back()}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 500, color: '#8B7E6E', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit', marginBottom: 12 }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M9 2L4 7l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Kembali
+          </button>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: '#8B7E6E', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+            Transaksi
+          </div>
+          <h2 style={{ fontSize: 22, fontWeight: 600, color: '#1A1A18', letterSpacing: '-0.4px', margin: '3px 0 4px' }}>
+            Catat Transaksi Baru
+          </h2>
+          <p style={{ fontSize: 12, color: '#8B7E6E', margin: 0 }}>{workspace?.name}</p>
+        </div>
+
+        {/* ── Error ── */}
+        {error && (
+          <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: '#FEF2F2', border: '1px solid #FECACA', fontSize: 12.5, color: '#DC2626' }}>
+            {error}
+          </div>
+        )}
+
+        {/* ── Type Toggle + Amount ── */}
+        <div style={card}>
+          <p style={sectionTitle}>Jenis Transaksi</p>
+
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+            {(['expense', 'income'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setType(t)}
+                className={`kbn-type-${t}${type === t ? ' active' : ''}`}
+                style={{
+                  flex: 1, padding: '10px', borderRadius: 10, border: '1.5px solid transparent',
+                  cursor: 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                  transition: 'all 0.15s',
+                }}
+              >
+                {t === 'income'
+                  ? <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 12V2M2 7h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                  : <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M2 7h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                }
+                {t === 'income' ? 'Pemasukan' : 'Pengeluaran'}
+              </button>
+            ))}
+          </div>
+
+          {/* Amount */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={fieldLabel}>Jumlah <span style={{ color: '#DC2626' }}>*</span></label>
+            <div style={{ position: 'relative' }}>
+              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, fontWeight: 600, color: '#8B7E6E', pointerEvents: 'none' }}>
+                Rp
+              </span>
+              <input
+                className="kbn-input"
+                style={{ ...inputBase, paddingLeft: 52, fontSize: 15, fontWeight: 600, letterSpacing: '-0.3px' }}
+                placeholder="0"
+                value={amount}
+                onChange={e => setAmount(displayAmount(e.target.value))}
+                inputMode="numeric"
+              />
+            </div>
+          </div>
+
+          {/* Date + Ref */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={fieldLabel}>Tanggal <span style={{ color: '#DC2626' }}>*</span></label>
+              <input className="kbn-input" style={inputBase} type="date" value={date} onChange={e => setDate(e.target.value)} />
+            </div>
+            <div>
+              <label style={fieldLabel}>No. Referensi</label>
+              <input className="kbn-input" style={inputBase} placeholder="Opsional" value={ref} onChange={e => setRef(e.target.value)} />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Kategori dari DB ── */}
+        <div style={card}>
+          <p style={sectionTitle}>
+            Kategori{' '}
+            <span style={{ color: '#DC2626' }}>*</span>
+            <span style={{ color: '#B0A89A', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>
+              ({filteredCats.length} tersedia)
+            </span>
+          </p>
+
+          {filteredCats.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '20px 0', color: '#8B7E6E', fontSize: 12.5 }}>
+              Belum ada kategori {isIncome ? 'pemasukan' : 'pengeluaran'}.
+              <br />
+              <a href="/dashboard/kategori" style={{ color: SB, textDecoration: 'none', fontWeight: 500 }}>
+                Tambah di halaman Kategori →
+              </a>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
+              {filteredCats.map(cat => {
+                const active = categoryId === cat.id
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => setCategoryId(active ? null : cat.id)}
+                    className={`kbn-cat${active ? ` active-${type}` : ''}`}
+                    style={{
+                      padding: '9px 6px', borderRadius: 8, border: '1.5px solid #E8E0D4',
+                      background: '#FAFAF9', cursor: 'pointer', fontFamily: 'inherit',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                    }}
+                  >
+                    <span style={{ fontSize: 18, lineHeight: 1 }}>{cat.icon || (isIncome ? '💰' : '💸')}</span>
+                    <span style={{ fontSize: 10, fontWeight: 500, color: '#5C5650', textAlign: 'center', lineHeight: 1.2 }}>
+                      {cat.name}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ── Detail ── */}
+        <div style={card}>
+          <p style={sectionTitle}>Detail</p>
+
+          <div style={{ marginBottom: 14 }}>
+            <label style={fieldLabel}>Keterangan <span style={{ color: '#DC2626' }}>*</span></label>
+            <input
+              className="kbn-input"
+              style={inputBase}
+              placeholder={isIncome ? 'Contoh: Iuran warga bulan Juni' : 'Contoh: Bayar rekening listrik Juli'}
+              value={description}
+              onChange={e => setDesc(e.target.value)}
+            />
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <label style={fieldLabel}>Catatan</label>
+            <textarea
+              className="kbn-input"
+              style={{ ...inputBase, resize: 'vertical', minHeight: 70 }}
+              placeholder="Tambahkan catatan tambahan jika diperlukan..."
+              value={note}
+              onChange={e => setNote(e.target.value)}
+            />
+          </div>
+
+          {/* File upload */}
+          <div>
+            <label style={fieldLabel}>Lampiran Bukti</label>
+            <div
+              onClick={() => fileRef.current?.click()}
+              onMouseEnter={() => setHoverFile(true)}
+              onMouseLeave={() => setHoverFile(false)}
+              style={{
+                border: `1.5px dashed ${hoverFile ? SB : '#D4CFC4'}`,
+                borderRadius: 8, padding: '16px', textAlign: 'center', cursor: 'pointer',
+                background: hoverFile ? '#EBF4FB' : '#FAFAF9',
+                transition: 'border-color 0.12s, background 0.12s',
+              }}
+            >
+              {file ? (
+                <>
+                  <div style={{ fontSize: 18, marginBottom: 4 }}>📎</div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A18' }}>{file.name}</div>
+                  <div style={{ fontSize: 10.5, color: '#8B7E6E', marginTop: 2 }}>
+                    {(file.size / 1024).toFixed(0)} KB — klik untuk ganti
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 20, marginBottom: 4 }}>📎</div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#5C5650' }}>Klik untuk unggah</div>
+                  <div style={{ fontSize: 10.5, color: '#8B7E6E', marginTop: 2 }}>JPG, PNG, PDF — maks. 5 MB</div>
+                </>
+              )}
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*,.pdf"
+              style={{ display: 'none' }}
+              onChange={e => setFile(e.target.files?.[0] ?? null)}
+            />
+          </div>
+        </div>
+
+        {/* ── Preview pill ── */}
+        {parseAmount(amount) > 0 && selectedCat && (
+          <div style={{ marginBottom: 12, padding: '12px 16px', borderRadius: 10, background: '#fff', border: '1px solid #E8E0D4', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16 }}>{selectedCat.icon || (isIncome ? '💰' : '💸')}</span>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A18' }}>{description || selectedCat.name}</div>
+                <div style={{ fontSize: 10.5, color: '#8B7E6E' }}>
+                  {new Date(date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                </div>
+              </div>
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: isIncome ? '#15803D' : '#DC2626' }}>
+              {isIncome ? '+' : '−'}{fmt(parseAmount(amount))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Actions ── */}
+        <div style={{ display: 'flex', gap: 9, marginBottom: 32 }}>
+          <button
+            onClick={() => router.back()}
+            onMouseEnter={() => setHoverCancel(true)}
+            onMouseLeave={() => setHoverCancel(false)}
             style={{
-              padding: '7px 14px', background: confirmBtnColor, color: '#fff',
-              border: 'none', borderRadius: 8, fontSize: 12,
-              cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+              flex: 1, padding: '11px', borderRadius: 9, border: '1px solid #DDD8CF',
+              background: hoverCancel ? '#F5F2EB' : '#fff', color: '#5C5650',
+              fontSize: 13, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer',
+              transition: 'background 0.12s',
             }}
           >
-            + Tambah
+            Batal
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            onMouseEnter={() => setHoverSubmit(true)}
+            onMouseLeave={() => setHoverSubmit(false)}
+            style={{
+              flex: 2, padding: '11px', borderRadius: 9, border: 'none',
+              background: submitting
+                ? '#9C9892'
+                : isIncome
+                  ? (hoverSubmit ? '#15803D' : '#16A34A')
+                  : (hoverSubmit ? '#B91C1C' : '#DC2626'),
+              color: '#fff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+              cursor: submitting ? 'not-allowed' : 'pointer',
+              transition: 'background 0.12s',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            }}
+          >
+            {submitting ? (
+              <>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ animation: 'spin 1s linear infinite' }}>
+                  <circle cx="7" cy="7" r="5.5" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5"/>
+                  <path d="M7 1.5A5.5 5.5 0 0 1 12.5 7" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+                Menyimpan...
+              </>
+            ) : (
+              `Simpan ${isIncome ? 'Pemasukan' : 'Pengeluaran'}`
+            )}
           </button>
         </div>
-      )}
-    </div>
+
+      </div>
+    </>
   )
 }

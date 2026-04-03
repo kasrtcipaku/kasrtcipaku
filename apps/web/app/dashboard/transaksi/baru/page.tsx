@@ -74,23 +74,36 @@ export default function NewTransactionPage() {
         return
       }
 
-      const member     = memberships[0] as any
-      const ws         = member.workspaces
-      // Pakai workspace_id langsung dari membership sebagai fallback
-      const workspaceId: string = ws?.id ?? member.workspace_id
+      const member      = memberships[0] as any
+      const ws          = member.workspaces
+      // Pakai workspace_id langsung dari membership — lebih reliable
+      const workspaceId: string = member.workspace_id
 
       setWorkspace({ ...ws, id: workspaceId })
 
-      // Ambil kategori — TANPA filter is_active supaya kompatibel
-      // dengan DB yang belum menjalankan migration kolom is_active
+      // Ambil hanya kategori yang dipilih saat setup (is_active = true)
       const { data: cats, error: catErr } = await supabase
         .from('categories')
         .select('id, name, icon, type')
         .eq('workspace_id', workspaceId)
+        .eq('is_active', true)
         .order('name', { ascending: true })
 
       if (catErr) {
-        setLoadError('Gagal memuat kategori: ' + catErr.message)
+        // Fallback: kalau kolom is_active belum ada di DB, ambil semua
+        const { data: catsFallback, error: catErrFallback } = await supabase
+          .from('categories')
+          .select('id, name, icon, type')
+          .eq('workspace_id', workspaceId)
+          .order('name', { ascending: true })
+
+        if (catErrFallback) {
+          setLoadError('Gagal memuat kategori: ' + catErrFallback.message)
+          setLoading(false)
+          return
+        }
+
+        setDbCategories((catsFallback as DbCategory[]) ?? [])
         setLoading(false)
         return
       }

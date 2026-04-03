@@ -11,8 +11,6 @@ const TYPE_OPTIONS = [
   { value: 'personal', label: 'Personal',        icon: '👤', desc: 'Keuangan pribadi & keluarga' },
 ]
 
-// Default categories per workspace type
-// Each item: { name, icon }
 const DEFAULT_CATS: Record<string, {
   income:  { name: string; icon: string }[]
   expense: { name: string; icon: string }[]
@@ -93,37 +91,28 @@ const DEFAULT_CATS: Record<string, {
   },
 }
 
-// Icon pool untuk kategori custom baru
 const CUSTOM_ICONS = ['⭐', '🔖', '📌', '🗂️', '📝', '🎯', '🔑', '💎']
-
 const SB    = '#7AAACE'
 const GREEN = '#2d5a27'
 
-// Tipe data untuk satu kategori di state
 type CatItem = { name: string; icon: string; isCustom?: boolean }
 
 export default function SetupPage() {
   const router = useRouter()
-  const isSubmitting = useRef(false) // guard anti double-submit
+  const isSubmitting = useRef(false) // FIX: guard anti double-submit
 
   const [step, setStep]         = useState(1)
   const [wsName, setWsName]     = useState('')
   const [wsType, setWsType]     = useState('rt')
-
-  // Menyimpan kategori yang *dipilih* (aktif) — berisi objek { name, icon }
   const [incomeCats,  setIncomeCats]  = useState<CatItem[]>([])
   const [expenseCats, setExpenseCats] = useState<CatItem[]>([])
-
-  // Kategori custom yang ditambahkan user (di luar DEFAULT_CATS)
   const [customIncome,  setCustomIncome]  = useState<CatItem[]>([])
   const [customExpense, setCustomExpense] = useState<CatItem[]>([])
-
   const [newCatName, setNewCatName]   = useState('')
   const [addingFor,  setAddingFor]    = useState<'income' | 'expense' | null>(null)
   const [creating,   setCreating]     = useState(false)
   const [error,      setError]        = useState('')
 
-  // Redirect kalau sudah punya workspace
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -137,16 +126,14 @@ export default function SetupPage() {
     })
   }, [])
 
-  // Reset ke default saat tipe berubah
   useEffect(() => {
     const cats = DEFAULT_CATS[wsType]
-    setIncomeCats([...cats.income])   // semua default aktif
+    setIncomeCats([...cats.income])
     setExpenseCats([...cats.expense])
     setCustomIncome([])
     setCustomExpense([])
   }, [wsType])
 
-  // Toggle aktif/nonaktif satu kategori
   const toggleCat = (type: 'income' | 'expense', item: CatItem) => {
     const setter = type === 'income' ? setIncomeCats : setExpenseCats
     setter(prev => {
@@ -155,27 +142,22 @@ export default function SetupPage() {
     })
   }
 
-  // Tambah kategori custom
   const addCustomCat = (type: 'income' | 'expense') => {
     const val = newCatName.trim()
     if (!val) return
-
     const randomIcon = CUSTOM_ICONS[Math.floor(Math.random() * CUSTOM_ICONS.length)]
     const newItem: CatItem = { name: val, icon: randomIcon, isCustom: true }
-
     if (type === 'income') {
-      // Cek duplikat di semua kategori income
       const allNames = [...DEFAULT_CATS[wsType].income.map(c => c.name), ...customIncome.map(c => c.name)]
       if (allNames.includes(val)) { setNewCatName(''); setAddingFor(null); return }
       setCustomIncome(prev => [...prev, newItem])
-      setIncomeCats(prev => [...prev, newItem])   // langsung aktif
+      setIncomeCats(prev => [...prev, newItem])
     } else {
       const allNames = [...DEFAULT_CATS[wsType].expense.map(c => c.name), ...customExpense.map(c => c.name)]
       if (allNames.includes(val)) { setNewCatName(''); setAddingFor(null); return }
       setCustomExpense(prev => [...prev, newItem])
       setExpenseCats(prev => [...prev, newItem])
     }
-
     setNewCatName('')
     setAddingFor(null)
   }
@@ -185,8 +167,7 @@ export default function SetupPage() {
     if (incomeCats.length === 0 && expenseCats.length === 0) {
       setError('Pilih minimal satu kategori.'); return
     }
-
-    // Guard: cegah double-submit meski tombol diklik cepat 2x
+    // FIX: ref-based guard — aktif sebelum React re-render, cegah double-submit
     if (isSubmitting.current) return
     isSubmitting.current = true
 
@@ -217,7 +198,7 @@ export default function SetupPage() {
       role: 'owner',
     })
 
-    // 3. Upsert kategori — ignoreDuplicates supaya aman dari race condition
+    // 3. FIX: upsert + ignoreDuplicates — aman dari race condition & unique constraint
     const catPayload = [
       ...incomeCats.map(c  => ({ workspace_id: ws.id, name: c.name, icon: c.icon, type: 'income',  is_active: true })),
       ...expenseCats.map(c => ({ workspace_id: ws.id, name: c.name, icon: c.icon, type: 'expense', is_active: true })),
@@ -235,16 +216,9 @@ export default function SetupPage() {
 
     setStep(3)
     setCreating(false)
-    // isSubmitting.current tetap true — flow selesai, tidak perlu reset
   }
 
   const selectedType = TYPE_OPTIONS.find(t => t.value === wsType)
-
-  // Helper: apakah item aktif
-  const isActive = (type: 'income' | 'expense', item: CatItem) =>
-    type === 'income'
-      ? incomeCats.some(c => c.name === item.name)
-      : expenseCats.some(c => c.name === item.name)
 
   return (
     <div className="setup-outer" style={{
@@ -263,7 +237,7 @@ export default function SetupPage() {
         .type-card:hover { border-color: #aac8e0 !important; background: #f0f6fb !important; }
         .cat-chip { transition: all 0.15s; cursor: pointer; user-select: none; }
         .cat-chip:hover { opacity: 0.8; }
-        input:focus, textarea:focus { outline: none; border-color: #aac8e0 !important; }
+        input:focus { outline: none; border-color: #aac8e0 !important; }
         .setup-card::-webkit-scrollbar { width: 4px; }
         .setup-card::-webkit-scrollbar-track { background: transparent; }
         .setup-card::-webkit-scrollbar-thumb { background: #E3DED6; border-radius: 4px; }
@@ -287,11 +261,7 @@ export default function SetupPage() {
 
         {/* Step indicator */}
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 28 }}>
-          {[
-            { n: 1, label: 'Workspace' },
-            { n: 2, label: 'Kategori' },
-            { n: 3, label: 'Selesai' },
-          ].map((s, i) => (
+          {[{ n: 1, label: 'Workspace' }, { n: 2, label: 'Kategori' }, { n: 3, label: 'Selesai' }].map((s, i) => (
             <div key={s.n} style={{ display: 'flex', alignItems: 'center', flex: i < 2 ? 1 : 'none' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <div style={{
@@ -302,177 +272,72 @@ export default function SetupPage() {
                 }}>
                   {step > s.n ? '✓' : s.n}
                 </div>
-                <span style={{ fontSize: 12, fontWeight: step === s.n ? 600 : 400, color: step === s.n ? '#0f0e0c' : '#9C9892' }}>
-                  {s.label}
-                </span>
+                <span style={{ fontSize: 12, fontWeight: step === s.n ? 600 : 400, color: step === s.n ? '#0f0e0c' : '#9C9892' }}>{s.label}</span>
               </div>
               {i < 2 && <div style={{ flex: 1, height: 1, background: '#E3DED6', margin: '0 10px' }} />}
             </div>
           ))}
         </div>
 
-        {/* ─── STEP 1 ─── */}
+        {/* STEP 1 */}
         {step === 1 && (
           <div>
-            <h2 style={{ fontSize: 22, fontWeight: 600, color: '#0f0e0c', marginBottom: 6, letterSpacing: '-0.3px' }}>
-              Buat workspace
-            </h2>
+            <h2 style={{ fontSize: 22, fontWeight: 600, color: '#0f0e0c', marginBottom: 6, letterSpacing: '-0.3px' }}>Buat workspace</h2>
             <p style={{ fontSize: 13, color: '#7a7469', marginBottom: 24, lineHeight: 1.6 }}>
               Workspace adalah ruang kerja kamu. Bisa untuk RT, kosan, warung, atau keuangan pribadi.
             </p>
-
-            <label style={{ fontSize: 11, fontWeight: 600, color: '#7a7469', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: 6 }}>
-              Nama workspace
-            </label>
-            <input
-              type="text"
-              value={wsName}
-              onChange={e => setWsName(e.target.value)}
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#7a7469', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: 6 }}>Nama workspace</label>
+            <input type="text" value={wsName} onChange={e => setWsName(e.target.value)}
               placeholder="Contoh: RT 05 Kel. Merdeka"
-              style={{
-                width: '100%', padding: '10px 14px', border: '1px solid #E3DED6',
-                borderRadius: 10, fontSize: 14, fontFamily: 'inherit', color: '#0f0e0c',
-                background: '#FAFAF8', marginBottom: 20, boxSizing: 'border-box',
-              }}
-            />
-
-            <label style={{ fontSize: 11, fontWeight: 600, color: '#7a7469', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: 10 }}>
-              Tipe workspace
-            </label>
+              style={{ width: '100%', padding: '10px 14px', border: '1px solid #E3DED6', borderRadius: 10, fontSize: 14, fontFamily: 'inherit', color: '#0f0e0c', background: '#FAFAF8', marginBottom: 20, boxSizing: 'border-box' }} />
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#7a7469', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: 10 }}>Tipe workspace</label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 24 }}>
               {TYPE_OPTIONS.map(t => (
-                <div
-                  key={t.value}
-                  className="type-card btn-press"
-                  onClick={() => setWsType(t.value)}
-                  style={{
-                    border: wsType === t.value ? `2px solid ${SB}` : '1px solid #E3DED6',
-                    borderRadius: 12, padding: '14px 12px', cursor: 'pointer',
-                    background: wsType === t.value ? '#f0f6fb' : '#FAFAF8',
-                  }}
-                >
+                <div key={t.value} className="type-card btn-press" onClick={() => setWsType(t.value)}
+                  style={{ border: wsType === t.value ? `2px solid ${SB}` : '1px solid #E3DED6', borderRadius: 12, padding: '14px 12px', cursor: 'pointer', background: wsType === t.value ? '#f0f6fb' : '#FAFAF8' }}>
                   <div style={{ fontSize: 22, marginBottom: 8 }}>{t.icon}</div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: '#0f0e0c', marginBottom: 3 }}>{t.label}</div>
                   <div style={{ fontSize: 11.5, color: '#7a7469', lineHeight: 1.4 }}>{t.desc}</div>
                 </div>
               ))}
             </div>
-
-            <button
-              onClick={() => {
-                if (!wsName.trim()) { setError('Nama workspace wajib diisi.'); return }
-                setError('')
-                setStep(2)
-              }}
+            {error && <p style={{ fontSize: 12, color: '#dc2626', marginBottom: 10 }}>{error}</p>}
+            <button onClick={() => { if (!wsName.trim()) { setError('Nama workspace wajib diisi.'); return } setError(''); setStep(2) }}
               className="btn-press"
-              style={{
-                width: '100%', padding: '12px', background: GREEN, color: '#fff',
-                border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600,
-                cursor: 'pointer', fontFamily: 'inherit',
-              }}
-            >
+              style={{ width: '100%', padding: '12px', background: GREEN, color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
               Lanjut →
             </button>
-            {error && <p style={{ fontSize: 12, color: '#dc2626', marginTop: 10, textAlign: 'center' }}>{error}</p>}
           </div>
         )}
 
-        {/* ─── STEP 2 ─── */}
+        {/* STEP 2 */}
         {step === 2 && (
           <div>
-            <h2 style={{ fontSize: 22, fontWeight: 600, color: '#0f0e0c', marginBottom: 6, letterSpacing: '-0.3px' }}>
-              Pilih kategori
-            </h2>
+            <h2 style={{ fontSize: 22, fontWeight: 600, color: '#0f0e0c', marginBottom: 6, letterSpacing: '-0.3px' }}>Pilih kategori</h2>
             <p style={{ fontSize: 13, color: '#7a7469', marginBottom: 24, lineHeight: 1.6 }}>
-              Kategori default untuk <strong style={{ color: '#0f0e0c' }}>{selectedType?.label}</strong>.
-              Aktifkan yang relevan, nonaktifkan yang tidak perlu. Bisa diubah kapan saja.
+              Kategori default untuk <strong style={{ color: '#0f0e0c' }}>{selectedType?.label}</strong>. Aktifkan yang relevan, nonaktifkan yang tidak perlu. Bisa diubah kapan saja.
             </p>
-
-            {/* ── Income ── */}
-            <CatSection
-              label="Pemasukan"
-              labelColor="#16a34a"
-              defaults={DEFAULT_CATS[wsType].income}
-              customs={customIncome}
-              activeCats={incomeCats}
-              onToggle={item => toggleCat('income', item)}
-              addingFor={addingFor}
-              addingTarget="income"
-              onClickAdd={() => setAddingFor(addingFor === 'income' ? null : 'income')}
-              newCatName={newCatName}
-              onNewCatChange={setNewCatName}
-              onAddConfirm={() => addCustomCat('income')}
-              addBtnColor={SB}
-              confirmBtnColor={GREEN}
-            />
-
-            {/* ── Expense ── */}
-            <CatSection
-              label="Pengeluaran"
-              labelColor="#dc2626"
-              defaults={DEFAULT_CATS[wsType].expense}
-              customs={customExpense}
-              activeCats={expenseCats}
-              onToggle={item => toggleCat('expense', item)}
-              addingFor={addingFor}
-              addingTarget="expense"
-              onClickAdd={() => setAddingFor(addingFor === 'expense' ? null : 'expense')}
-              newCatName={newCatName}
-              onNewCatChange={setNewCatName}
-              onAddConfirm={() => addCustomCat('expense')}
-              addBtnColor={SB}
-              confirmBtnColor="#dc2626"
-            />
-
-            {/* Ringkasan aktif */}
-            <div style={{ fontSize: 11.5, color: '#7a7469', marginBottom: 16, textAlign: 'center' }}>
-              {incomeCats.length} pemasukan · {expenseCats.length} pengeluaran dipilih
-            </div>
-
+            <CatSection label="Pemasukan" labelColor="#16a34a" defaults={DEFAULT_CATS[wsType].income} customs={customIncome} activeCats={incomeCats} onToggle={item => toggleCat('income', item)} addingFor={addingFor} addingTarget="income" onClickAdd={() => setAddingFor(addingFor === 'income' ? null : 'income')} newCatName={newCatName} onNewCatChange={setNewCatName} onAddConfirm={() => addCustomCat('income')} addBtnColor={SB} confirmBtnColor={GREEN} />
+            <CatSection label="Pengeluaran" labelColor="#dc2626" defaults={DEFAULT_CATS[wsType].expense} customs={customExpense} activeCats={expenseCats} onToggle={item => toggleCat('expense', item)} addingFor={addingFor} addingTarget="expense" onClickAdd={() => setAddingFor(addingFor === 'expense' ? null : 'expense')} newCatName={newCatName} onNewCatChange={setNewCatName} onAddConfirm={() => addCustomCat('expense')} addBtnColor={SB} confirmBtnColor="#dc2626" />
+            <div style={{ fontSize: 11.5, color: '#7a7469', marginBottom: 16, textAlign: 'center' }}>{incomeCats.length} pemasukan · {expenseCats.length} pengeluaran dipilih</div>
             {error && <p style={{ fontSize: 12, color: '#dc2626', marginBottom: 12 }}>{error}</p>}
-
-            <button onClick={handleCreate} disabled={creating} className="btn-press" style={{
-              width: '100%', padding: '12px', background: creating ? '#a3c9a0' : GREEN,
-              color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600,
-              cursor: creating ? 'not-allowed' : 'pointer', fontFamily: 'inherit', marginBottom: 10,
-            }}>
+            <button onClick={handleCreate} disabled={creating} className="btn-press" style={{ width: '100%', padding: '12px', background: creating ? '#a3c9a0' : GREEN, color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: creating ? 'not-allowed' : 'pointer', fontFamily: 'inherit', marginBottom: 10 }}>
               {creating ? 'Membuat workspace...' : '✓ Buat Workspace'}
             </button>
-            <button onClick={() => { setStep(1); setError('') }} className="btn-press" style={{
-              width: '100%', padding: '10px', background: 'transparent', color: '#7a7469',
-              border: '1px solid #E3DED6', borderRadius: 12, fontSize: 13, fontWeight: 500,
-              cursor: 'pointer', fontFamily: 'inherit',
-            }}>
+            <button onClick={() => { setStep(1); setError('') }} className="btn-press" style={{ width: '100%', padding: '10px', background: 'transparent', color: '#7a7469', border: '1px solid #E3DED6', borderRadius: 12, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>
               ← Kembali
             </button>
           </div>
         )}
 
-        {/* ─── STEP 3 ─── */}
+        {/* STEP 3 */}
         {step === 3 && (
           <div className="scale-in" style={{ textAlign: 'center' }}>
-            <div style={{
-              width: 64, height: 64, borderRadius: '50%', background: '#e8f4e8',
-              border: '2px solid #b8d9b4', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              margin: '0 auto 20px', fontSize: 28,
-            }}>✓</div>
-            <h2 style={{ fontSize: 22, fontWeight: 600, color: '#0f0e0c', marginBottom: 6, letterSpacing: '-0.3px' }}>
-              Workspace siap!
-            </h2>
-            <p style={{ fontSize: 13, color: '#7a7469', marginBottom: 24, lineHeight: 1.6 }}>
-              Kamu sudah bisa mulai mencatat transaksi dan mengundang anggota ke workspace.
-            </p>
-
-            <div style={{
-              background: '#FAFAF8', border: '1px solid #E3DED6', borderRadius: 12,
-              padding: 16, marginBottom: 24, textAlign: 'left',
-            }}>
-              {[
-                { k: 'Nama',                v: wsName },
-                { k: 'Tipe',                v: selectedType?.label },
-                { k: 'Kategori pemasukan',  v: `${incomeCats.length} kategori` },
-                { k: 'Kategori pengeluaran',v: `${expenseCats.length} kategori` },
-              ].map(r => (
+            <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#e8f4e8', border: '2px solid #b8d9b4', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 28 }}>✓</div>
+            <h2 style={{ fontSize: 22, fontWeight: 600, color: '#0f0e0c', marginBottom: 6, letterSpacing: '-0.3px' }}>Workspace siap!</h2>
+            <p style={{ fontSize: 13, color: '#7a7469', marginBottom: 24, lineHeight: 1.6 }}>Kamu sudah bisa mulai mencatat transaksi dan mengundang anggota ke workspace.</p>
+            <div style={{ background: '#FAFAF8', border: '1px solid #E3DED6', borderRadius: 12, padding: 16, marginBottom: 24, textAlign: 'left' }}>
+              {[{ k: 'Nama', v: wsName }, { k: 'Tipe', v: selectedType?.label }, { k: 'Kategori pemasukan', v: `${incomeCats.length} kategori` }, { k: 'Kategori pengeluaran', v: `${expenseCats.length} kategori` }].map(r => (
                 <div key={r.k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #F0EDE6' }}>
                   <span style={{ fontSize: 12.5, color: '#7a7469' }}>{r.k}</span>
                   <span style={{ fontSize: 12.5, fontWeight: 600, color: '#0f0e0c' }}>{r.v}</span>
@@ -483,21 +348,8 @@ export default function SetupPage() {
                 <span style={{ fontSize: 11.5, fontWeight: 600, background: '#e8f4e8', color: '#2d5a27', border: '1px solid #b8d9b4', padding: '3px 10px', borderRadius: 99 }}>Aktif</span>
               </div>
             </div>
-
-            <button onClick={() => router.push('/dashboard')} className="btn-press" style={{
-              width: '100%', padding: '12px', background: GREEN, color: '#fff',
-              border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600,
-              cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10,
-            }}>
-              Ke Dashboard →
-            </button>
-            <button onClick={() => router.push('/dashboard/anggota')} className="btn-press" style={{
-              width: '100%', padding: '10px', background: 'transparent', color: '#7a7469',
-              border: '1px solid #E3DED6', borderRadius: 12, fontSize: 13, fontWeight: 500,
-              cursor: 'pointer', fontFamily: 'inherit',
-            }}>
-              Undang anggota sekarang
-            </button>
+            <button onClick={() => router.push('/dashboard')} className="btn-press" style={{ width: '100%', padding: '12px', background: GREEN, color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10 }}>Ke Dashboard →</button>
+            <button onClick={() => router.push('/dashboard/anggota')} className="btn-press" style={{ width: '100%', padding: '10px', background: 'transparent', color: '#7a7469', border: '1px solid #E3DED6', borderRadius: 12, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>Undang anggota sekarang</button>
           </div>
         )}
       </div>
@@ -505,106 +357,48 @@ export default function SetupPage() {
   )
 }
 
-/* ─── Sub-komponen CatSection ─── */
 type CatSectionProps = {
-  label: string
-  labelColor: string
-  defaults: { name: string; icon: string }[]
-  customs: { name: string; icon: string }[]
-  activeCats: { name: string; icon: string }[]
-  onToggle: (item: { name: string; icon: string }) => void
-  addingFor: 'income' | 'expense' | null
-  addingTarget: 'income' | 'expense'
-  onClickAdd: () => void
-  newCatName: string
-  onNewCatChange: (v: string) => void
-  onAddConfirm: () => void
-  addBtnColor: string
-  confirmBtnColor: string
+  label: string; labelColor: string
+  defaults: { name: string; icon: string }[]; customs: { name: string; icon: string }[]
+  activeCats: { name: string; icon: string }[]; onToggle: (item: { name: string; icon: string }) => void
+  addingFor: 'income' | 'expense' | null; addingTarget: 'income' | 'expense'
+  onClickAdd: () => void; newCatName: string; onNewCatChange: (v: string) => void
+  onAddConfirm: () => void; addBtnColor: string; confirmBtnColor: string
 }
 
-function CatSection({
-  label, labelColor, defaults, customs, activeCats,
-  onToggle, addingFor, addingTarget, onClickAdd,
-  newCatName, onNewCatChange, onAddConfirm,
-  addBtnColor, confirmBtnColor,
-}: CatSectionProps) {
+function CatSection({ label, labelColor, defaults, customs, activeCats, onToggle, addingFor, addingTarget, onClickAdd, newCatName, onNewCatChange, onAddConfirm, addBtnColor, confirmBtnColor }: CatSectionProps) {
   const isActive = (name: string) => activeCats.some(c => c.name === name)
   const isIncome = addingTarget === 'income'
-
   const chipStyle = (active: boolean): React.CSSProperties => ({
     padding: '5px 12px', borderRadius: 99, fontSize: 12.5, fontWeight: 500,
     display: 'flex', alignItems: 'center', gap: 5,
-    border: active
-      ? isIncome ? '1.5px solid #b8d9b4' : '1.5px solid #fecaca'
-      : '1px solid #E3DED6',
-    background: active
-      ? isIncome ? '#e8f4e8' : '#fef2f2'
-      : '#F5F2EB',
-    color: active
-      ? isIncome ? '#2d5a27' : '#dc2626'
-      : '#7a7469',
+    border: active ? (isIncome ? '1.5px solid #b8d9b4' : '1.5px solid #fecaca') : '1px solid #E3DED6',
+    background: active ? (isIncome ? '#e8f4e8' : '#fef2f2') : '#F5F2EB',
+    color: active ? (isIncome ? '#2d5a27' : '#dc2626') : '#7a7469',
   })
-
   return (
     <div style={{ marginBottom: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <label style={{ fontSize: 11, fontWeight: 600, color: labelColor, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-          {isIncome ? '↑' : '↓'} {label}
-        </label>
-        <button
-          onClick={onClickAdd}
-          style={{ fontSize: 11, color: addBtnColor, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}
-        >
-          {addingFor === addingTarget ? '✕ Tutup' : '+ Tambah'}
-        </button>
+        <label style={{ fontSize: 11, fontWeight: 600, color: labelColor, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{isIncome ? '↑' : '↓'} {label}</label>
+        <button onClick={onClickAdd} style={{ fontSize: 11, color: addBtnColor, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>{addingFor === addingTarget ? '✕ Tutup' : '+ Tambah'}</button>
       </div>
-
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-        {/* Default categories */}
         {defaults.map(cat => (
           <div key={cat.name} className="cat-chip" onClick={() => onToggle(cat)} style={chipStyle(isActive(cat.name))}>
-            <span>{cat.icon}</span>
-            <span>{cat.name}</span>
+            <span>{cat.icon}</span><span>{cat.name}</span>
           </div>
         ))}
-        {/* Custom categories */}
         {customs.map(cat => (
-          <div key={cat.name} className="cat-chip" onClick={() => onToggle(cat)} style={{
-            ...chipStyle(isActive(cat.name)),
-            borderStyle: 'dashed',
-          }}>
-            <span>{cat.icon}</span>
-            <span>{cat.name}</span>
+          <div key={cat.name} className="cat-chip" onClick={() => onToggle(cat)} style={{ ...chipStyle(isActive(cat.name)), borderStyle: 'dashed' }}>
+            <span>{cat.icon}</span><span>{cat.name}</span>
             {isActive(cat.name) && <span style={{ fontSize: 10 }}>✕</span>}
           </div>
         ))}
       </div>
-
       {addingFor === addingTarget && (
         <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-          <input
-            type="text"
-            value={newCatName}
-            onChange={e => onNewCatChange(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && onAddConfirm()}
-            placeholder="Nama kategori baru..."
-            style={{
-              flex: 1, padding: '7px 10px', border: '1px solid #E3DED6',
-              borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit',
-            }}
-            autoFocus
-          />
-          <button
-            onClick={onAddConfirm}
-            style={{
-              padding: '7px 14px', background: confirmBtnColor, color: '#fff',
-              border: 'none', borderRadius: 8, fontSize: 12,
-              cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
-            }}
-          >
-            + Tambah
-          </button>
+          <input type="text" value={newCatName} onChange={e => onNewCatChange(e.target.value)} onKeyDown={e => e.key === 'Enter' && onAddConfirm()} placeholder="Nama kategori baru..." style={{ flex: 1, padding: '7px 10px', border: '1px solid #E3DED6', borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit' }} autoFocus />
+          <button onClick={onAddConfirm} style={{ padding: '7px 14px', background: confirmBtnColor, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>+ Tambah</button>
         </div>
       )}
     </div>

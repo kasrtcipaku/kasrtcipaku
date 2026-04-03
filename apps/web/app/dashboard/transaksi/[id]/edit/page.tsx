@@ -1,14 +1,11 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-const SB     = '#7AAACE'
-const SB_DRK = '#5E96C0'
-
-const today = () => new Date().toISOString().split('T')[0]
-const fmt   = (n: number) =>
+const SB  = '#7AAACE'
+const fmt = (n: number) =>
   new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n)
 
 function parseAmount(raw: string): number {
@@ -27,9 +24,10 @@ type DbCategory = {
   type: 'income' | 'expense'
 }
 
-export default function NewTransactionPage() {
-  const router  = useRouter()
-  const params  = useSearchParams()
+export default function EditTransactionPage() {
+  const router = useRouter()
+  const params = useParams()
+  const id     = params.id as string
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [workspace,    setWorkspace]    = useState<any>(null)
@@ -39,15 +37,14 @@ export default function NewTransactionPage() {
   const [loadError,    setLoadError]    = useState<string | null>(null)
   const [dbCategories, setDbCategories] = useState<DbCategory[]>([])
 
-  const [type,        setType]        = useState<'income' | 'expense'>(
-    (params.get('type') as 'income' | 'expense') || 'expense'
-  )
+  const [type,        setType]        = useState<'income' | 'expense'>('expense')
   const [amount,      setAmount]      = useState('')
-  const [date,        setDate]        = useState(today())
+  const [date,        setDate]        = useState('')
   const [ref,         setRef]         = useState('')
   const [categoryId,  setCategoryId]  = useState<string | null>(null)
   const [description, setDesc]        = useState('')
   const [note,        setNote]        = useState('')
+  const [existingAttachment, setExistingAttachment] = useState<string | null>(null)
   const [file,        setFile]        = useState<File | null>(null)
   const [hoverCancel, setHoverCancel] = useState(false)
   const [hoverSubmit, setHoverSubmit] = useState(false)
@@ -59,6 +56,7 @@ export default function NewTransactionPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
 
+      // Ambil workspace
       const { data: memberships, error: memErr } = await supabase
         .from('workspace_members')
         .select('workspace_id, workspaces(id, name, type)')
@@ -66,51 +64,64 @@ export default function NewTransactionPage() {
         .limit(1)
 
       if (memErr || !memberships?.length) {
-        if (memErr) setLoadError('Gagal memuat workspace: ' + memErr.message)
-        else router.push('/setup')
+        setLoadError('Gagal memuat workspace.')
         setLoading(false)
         return
       }
 
       const member      = memberships[0] as any
       const ws          = member.workspaces
-      // FIX: pakai workspace_id dari membership — lebih reliable dari ws.id
       const workspaceId: string = member.workspace_id
-
       setWorkspace({ ...ws, id: workspaceId })
 
-      // FIX: filter is_active = true — hanya kategori yang dipilih saat setup
-      const { data: cats, error: catErr } = await supabase
-        .from('categories')
-        .select('id, name, icon, type')
+      // Ambil data transaksi yang akan diedit
+      const { data: tx, error: txErr } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('id', id)
         .eq('workspace_id', workspaceId)
-        .eq('is_active', true)
-        .order('name', { ascending: true })
+        .single()
 
-      if (catErr) {
-        // Fallback jika kolom is_active belum ada di DB
-        const { data: catsFallback, error: catErrFallback } = await supabase
-          .from('categories')
-          .select('id, name, icon, type')
-          .eq('workspace_id', workspaceId)
-          .order('name', { ascending: true })
-
-        if (catErrFallback) {
-          setLoadError('Gagal memuat kategori: ' + catErrFallback.message)
-          setLoading(false)
-          return
-        }
-        setDbCategories((catsFallback as DbCategory[]) ?? [])
+      if (txErr || !tx) {
+        setLoadError('Transaksi tidak ditemukan.')
         setLoading(false)
         return
       }
 
-      setDbCategories((cats as DbCategory[]) ?? [])
+      // Isi form dengan data existing
+      setType(tx.type)
+      setAmount(tx.amount ? tx.amount.toLocaleString('id-ID') : '')
+      setDate(tx.date)
+      setRef(tx.reference || '')
+      setCategoryId(tx.category_id || null)
+      setDesc(tx.description || '')
+      setNote(tx.note || '')
+      setExistingAttachment(tx.attachment_url || null)
+
+      // Ambil kategori aktif + kategori yang dipakai transaksi ini
+      // (inklusif kategori nonaktif yang sudah dipilih, supaya tidak hilang)
+      const { data: cats } = await supabase
+        .from('categories')
+        .select('id, name, icon, type, is_active')
+        .eq('workspace_id', workspaceId)
+        .order('name', { ascending: true })
+
+      // Tampilkan kategori aktif + kategori yang saat ini dipakai transaksi ini
+      const filtered = (cats || []).filter((c: any) =>
+        c.is_active || c.id === tx.category_id
+      )
+      setDbCategories(filtered as DbCategory[])
       setLoading(false)
     })()
-  }, [])
+  }, [id])
 
-  useEffect(() => { setCategoryId(null) }, [type])
+  // Reset categoryId saat type berubah (kecuali saat load awal)
+  const [typeChanged, setTypeChanged] = useState(false)
+  const handleTypeChange = (t: 'income' | 'expense') => {
+    setType(t)
+    setCategoryId(null)
+    setTypeChanged(true)
+  }
 
   const filteredCats = dbCategories.filter(c => c.type === type)
   const selectedCat  = filteredCats.find(c => c.id === categoryId) ?? null
@@ -124,9 +135,8 @@ export default function NewTransactionPage() {
 
     setSubmitting(true)
     const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
 
-    let attachmentUrl: string | null = null
+    let attachmentUrl: string | null = existingAttachment
     if (file) {
       const path = `${workspace.id}/${Date.now()}_${file.name}`
       const { data: uploaded } = await supabase.storage
@@ -140,24 +150,25 @@ export default function NewTransactionPage() {
       }
     }
 
-    const { error: insertError } = await supabase.from('transactions').insert({
-      workspace_id:   workspace.id,
-      user_id:        user!.id,
-      type,
-      amount:         parseAmount(amount),
-      date,
-      description:    description.trim(),
-      note:           note.trim() || null,
-      category_id:    categoryId,
-      reference:      ref.trim() || null,
-      attachment_url: attachmentUrl,
-    })
+    const { error: updateError } = await supabase
+      .from('transactions')
+      .update({
+        type,
+        amount:         parseAmount(amount),
+        date,
+        description:    description.trim(),
+        note:           note.trim() || null,
+        category_id:    categoryId,
+        reference:      ref.trim() || null,
+        attachment_url: attachmentUrl,
+      })
+      .eq('id', id)
 
-    if (insertError) {
-      setError(insertError.message)
+    if (updateError) {
+      setError(updateError.message)
       setSubmitting(false)
     } else {
-      router.push('/dashboard/transaksi?new=1')
+      router.push('/dashboard/transaksi')
     }
   }
 
@@ -180,7 +191,7 @@ export default function NewTransactionPage() {
 
   if (loading) return (
     <div style={{ minHeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <p style={{ fontSize: 13, color: '#8B7E6E', fontFamily: 'DM Sans, system-ui, sans-serif' }}>Memuat kategori...</p>
+      <p style={{ fontSize: 13, color: '#8B7E6E', fontFamily: 'DM Sans, system-ui, sans-serif' }}>Memuat transaksi...</p>
     </div>
   )
 
@@ -189,7 +200,7 @@ export default function NewTransactionPage() {
       <div style={{ textAlign: 'center' }}>
         <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
         <p style={{ fontSize: 13, color: '#DC2626', marginBottom: 16 }}>{loadError}</p>
-        <button onClick={() => window.location.reload()} style={{ padding: '8px 16px', background: SB, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>Coba lagi</button>
+        <button onClick={() => router.back()} style={{ padding: '8px 16px', background: SB, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>Kembali</button>
       </div>
     </div>
   )
@@ -222,7 +233,7 @@ export default function NewTransactionPage() {
             Kembali
           </button>
           <div style={{ fontSize: 10.5, fontWeight: 600, color: '#8B7E6E', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Transaksi</div>
-          <h2 style={{ fontSize: 22, fontWeight: 600, color: '#1A1A18', letterSpacing: '-0.4px', margin: '3px 0 4px' }}>Catat Transaksi Baru</h2>
+          <h2 style={{ fontSize: 22, fontWeight: 600, color: '#1A1A18', letterSpacing: '-0.4px', margin: '3px 0 4px' }}>Edit Transaksi</h2>
           <p style={{ fontSize: 12, color: '#8B7E6E', margin: 0 }}>{workspace?.name}</p>
         </div>
 
@@ -235,7 +246,7 @@ export default function NewTransactionPage() {
           <p style={sectionTitle}>Jenis Transaksi</p>
           <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
             {(['expense', 'income'] as const).map(t => (
-              <button key={t} onClick={() => setType(t)}
+              <button key={t} onClick={() => handleTypeChange(t)}
                 className={`kbn-type-${t}${type === t ? ' t-active' : ''}`}
                 style={{ flex: 1, padding: '10px', borderRadius: 10, border: '1.5px solid transparent', cursor: 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, transition: 'all 0.15s' }}>
                 {t === 'income'
@@ -245,6 +256,7 @@ export default function NewTransactionPage() {
               </button>
             ))}
           </div>
+
           <div style={{ marginBottom: 14 }}>
             <label style={fieldLabel}>Jumlah <span style={{ color: '#DC2626' }}>*</span></label>
             <div style={{ position: 'relative' }}>
@@ -253,6 +265,7 @@ export default function NewTransactionPage() {
                 placeholder="0" value={amount} onChange={e => setAmount(displayAmount(e.target.value))} inputMode="numeric" />
             </div>
           </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <label style={fieldLabel}>Tanggal <span style={{ color: '#DC2626' }}>*</span></label>
@@ -311,12 +324,21 @@ export default function NewTransactionPage() {
           </div>
           <div>
             <label style={fieldLabel}>Lampiran Bukti</label>
+            {existingAttachment && !file && (
+              <div style={{ marginBottom: 8, padding: '8px 12px', borderRadius: 8, background: '#F0F6FB', border: '1px solid #B5D4F4', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <span style={{ fontSize: 14 }}>📎</span>
+                  <a href={existingAttachment} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: SB, textDecoration: 'none' }}>Lihat lampiran saat ini</a>
+                </div>
+                <button onClick={() => setExistingAttachment(null)} style={{ fontSize: 10, color: '#8B7E6E', background: 'none', border: 'none', cursor: 'pointer' }}>✕ Hapus</button>
+              </div>
+            )}
             <div onClick={() => fileRef.current?.click()} onMouseEnter={() => setHoverFile(true)} onMouseLeave={() => setHoverFile(false)}
               style={{ border: `1.5px dashed ${hoverFile ? SB : '#D4CFC4'}`, borderRadius: 8, padding: '16px', textAlign: 'center', cursor: 'pointer', background: hoverFile ? '#EBF4FB' : '#FAFAF9', transition: 'border-color 0.12s, background 0.12s' }}>
               {file ? (
                 <><div style={{ fontSize: 18, marginBottom: 4 }}>📎</div><div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A18' }}>{file.name}</div><div style={{ fontSize: 10.5, color: '#8B7E6E', marginTop: 2 }}>{(file.size / 1024).toFixed(0)} KB — klik untuk ganti</div></>
               ) : (
-                <><div style={{ fontSize: 20, marginBottom: 4 }}>📎</div><div style={{ fontSize: 12, fontWeight: 500, color: '#5C5650' }}>Klik untuk unggah</div><div style={{ fontSize: 10.5, color: '#8B7E6E', marginTop: 2 }}>JPG, PNG, PDF — maks. 5 MB</div></>
+                <><div style={{ fontSize: 20, marginBottom: 4 }}>📎</div><div style={{ fontSize: 12, fontWeight: 500, color: '#5C5650' }}>{existingAttachment ? 'Klik untuk ganti lampiran' : 'Klik untuk unggah'}</div><div style={{ fontSize: 10.5, color: '#8B7E6E', marginTop: 2 }}>JPG, PNG, PDF — maks. 5 MB</div></>
               )}
             </div>
             <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={e => setFile(e.target.files?.[0] ?? null)} />
@@ -330,7 +352,7 @@ export default function NewTransactionPage() {
               <span style={{ fontSize: 16 }}>{selectedCat.icon || (isIncome ? '💰' : '💸')}</span>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A18' }}>{description || selectedCat.name}</div>
-                <div style={{ fontSize: 10.5, color: '#8B7E6E' }}>{new Date(date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+                <div style={{ fontSize: 10.5, color: '#8B7E6E' }}>{date ? new Date(date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : ''}</div>
               </div>
             </div>
             <div style={{ fontSize: 14, fontWeight: 600, color: isIncome ? '#15803D' : '#DC2626' }}>{isIncome ? '+' : '−'}{fmt(parseAmount(amount))}</div>
@@ -345,7 +367,7 @@ export default function NewTransactionPage() {
           </button>
           <button onClick={handleSubmit} disabled={submitting} onMouseEnter={() => setHoverSubmit(true)} onMouseLeave={() => setHoverSubmit(false)}
             style={{ flex: 2, padding: '11px', borderRadius: 9, border: 'none', background: submitting ? '#9C9892' : isIncome ? (hoverSubmit ? '#15803D' : '#16A34A') : (hoverSubmit ? '#B91C1C' : '#DC2626'), color: '#fff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: submitting ? 'not-allowed' : 'pointer', transition: 'background 0.12s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            {submitting ? (<><svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ animation: 'spin 1s linear infinite' }}><circle cx="7" cy="7" r="5.5" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5"/><path d="M7 1.5A5.5 5.5 0 0 1 12.5 7" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/></svg>Menyimpan...</>) : `Simpan ${isIncome ? 'Pemasukan' : 'Pengeluaran'}`}
+            {submitting ? (<><svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ animation: 'spin 1s linear infinite' }}><circle cx="7" cy="7" r="5.5" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5"/><path d="M7 1.5A5.5 5.5 0 0 1 12.5 7" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/></svg>Menyimpan...</>) : '✓ Simpan Perubahan'}
           </button>
         </div>
       </div>

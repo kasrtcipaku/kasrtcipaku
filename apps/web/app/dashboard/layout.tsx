@@ -129,15 +129,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const { data: { user } } = await supabase.auth.getUser()
 
       if (user) {
-        // Owner login via Google — bersihkan member_session jika ada (anti tumpang tindih)
-        await fetch('/api/member-logout', { method: 'POST', credentials: 'include' })
-        setInfo({
-          sessionType: 'owner',
-          displayName: user.user_metadata?.full_name || 'Pengguna',
-          email: user.email,
-          initials: (user.user_metadata?.full_name?.[0] || user.email?.[0] || '?').toUpperCase(),
-        })
-        return
+        // Ada Supabase Auth user — cek apakah dia owner workspace
+        // Gunakan API sederhana untuk cek, atau langsung lewat supabase client
+        const { data: ownerCheck } = await supabase
+          .from('workspace_members')
+          .select('workspace_id')
+          .eq('user_id', user.id)
+          .eq('role', 'owner')
+          .limit(1)
+          .maybeSingle()
+
+        if (ownerCheck?.workspace_id) {
+          // Confirmed owner — bersihkan member_session, set sebagai owner
+          await fetch('/api/member-logout', { method: 'POST', credentials: 'include' })
+          setInfo({
+            sessionType: 'owner',
+            displayName: user.user_metadata?.full_name || 'Pengguna',
+            email: user.email,
+            initials: (user.user_metadata?.full_name?.[0] || user.email?.[0] || '?').toUpperCase(),
+          })
+          return
+        }
+
+        // Punya Supabase Auth tapi bukan owner — cek member_session dulu
+        // (kasus: baru accept invitation, member_session sudah di-set, Supabase Auth belum sign out)
+        // Jangan hapus member_session di sini, lanjut ke cek member_session di bawah
+        // Sign out Supabase Auth supaya tidak mengganggu jalur member
+        await supabase.auth.signOut()
       }
 
       // 2. Coba member_session cookie (anggota)
@@ -164,8 +182,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
       }
 
-      // 3. Tidak ada session valid → redirect
-      router.push('/')
+      // 3. Tidak ada session valid → redirect ke login
+      router.push('/login')
     }
 
     checkAuth()

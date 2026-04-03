@@ -170,7 +170,7 @@ export default function LandingPage() {
             </div>
           </div>
           <div className="nav-pill">
-            <Link href="/dashboard/setup" className="btn-solid">Mulai Gratis</Link>
+            <Link href="https://kasrtcipaku.vercel.app/login" className="btn-solid">Mulai Gratis</Link>
           </div>
         </nav>
 
@@ -195,7 +195,7 @@ export default function LandingPage() {
                 Catat kas, tagihan, dan laporan warga dalam satu tempat.
                 Akses dari mana saja, kapan saja.
               </p>
-              <Link href="/dashboard/setup" className="hero-cta">
+              <Link href="https://kasrtcipaku.vercel.app/login" className="hero-cta">
                 Buat Workspace
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                   <path d="M3 7h8M7 3l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
@@ -249,7 +249,7 @@ export default function LandingPage() {
             <p className="member-desc">
               Dapat link undangan dari ketua RT? Klik di sini untuk bergabung langsung.
             </p>
-            <Link href="/login" className="member-btn">
+            <Link href="https://kasrtcipaku.vercel.app/login/anggota" className="member-btn">
               Masuk sebagai Anggota
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                 <path d="M2 6h8M6 2l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>

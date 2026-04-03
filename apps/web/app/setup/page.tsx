@@ -99,7 +99,7 @@ type CatItem = { name: string; icon: string; isCustom?: boolean }
 
 export default function SetupPage() {
   const router = useRouter()
-  const isSubmitting = useRef(false) // FIX: guard anti double-submit
+  const isSubmitting = useRef(false)
 
   const [step, setStep]         = useState(1)
   const [wsName, setWsName]     = useState('')
@@ -126,6 +126,7 @@ export default function SetupPage() {
     })
   }, [])
 
+  // Reset kategori setiap ganti tipe workspace — semua dipilih by default
   useEffect(() => {
     const cats = DEFAULT_CATS[wsType]
     setIncomeCats([...cats.income])
@@ -140,6 +141,19 @@ export default function SetupPage() {
       const exists = prev.some(c => c.name === item.name)
       return exists ? prev.filter(c => c.name !== item.name) : [...prev, item]
     })
+  }
+
+  // FIX: helper pilih semua / hapus semua per section
+  const selectAll = (type: 'income' | 'expense') => {
+    const defaults = DEFAULT_CATS[wsType][type]
+    const customs  = type === 'income' ? customIncome : customExpense
+    const setter   = type === 'income' ? setIncomeCats : setExpenseCats
+    setter([...defaults, ...customs])
+  }
+
+  const deselectAll = (type: 'income' | 'expense') => {
+    const setter = type === 'income' ? setIncomeCats : setExpenseCats
+    setter([])
   }
 
   const addCustomCat = (type: 'income' | 'expense') => {
@@ -167,7 +181,6 @@ export default function SetupPage() {
     if (incomeCats.length === 0 && expenseCats.length === 0) {
       setError('Pilih minimal satu kategori.'); return
     }
-    // FIX: ref-based guard — aktif sebelum React re-render, cegah double-submit
     if (isSubmitting.current) return
     isSubmitting.current = true
 
@@ -176,6 +189,18 @@ export default function SetupPage() {
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
+
+    // Guard ekstra: cek apakah workspace sudah pernah dibuat (anti duplikat)
+    const { data: existingMember } = await supabase
+      .from('workspace_members')
+      .select('workspace_id')
+      .eq('user_id', user.id)
+      .limit(1)
+
+    if (existingMember?.length) {
+      router.push('/dashboard')
+      return
+    }
 
     // 1. Buat workspace
     const { data: ws, error: wsErr } = await supabase
@@ -198,7 +223,9 @@ export default function SetupPage() {
       role: 'owner',
     })
 
-    // 3. FIX: upsert + ignoreDuplicates — aman dari race condition & unique constraint
+    // 3. Insert HANYA kategori yang dipilih user
+    // incomeCats & expenseCats = state yang dikelola oleh toggleCat
+    // Kalau user uncheck chip, item keluar dari state — tidak akan di-insert
     const catPayload = [
       ...incomeCats.map(c  => ({ workspace_id: ws.id, name: c.name, icon: c.icon, type: 'income',  is_active: true })),
       ...expenseCats.map(c => ({ workspace_id: ws.id, name: c.name, icon: c.icon, type: 'expense', is_active: true })),
@@ -315,16 +342,41 @@ export default function SetupPage() {
           <div>
             <h2 style={{ fontSize: 22, fontWeight: 600, color: '#0f0e0c', marginBottom: 6, letterSpacing: '-0.3px' }}>Pilih kategori</h2>
             <p style={{ fontSize: 13, color: '#7a7469', marginBottom: 24, lineHeight: 1.6 }}>
-              Kategori default untuk <strong style={{ color: '#0f0e0c' }}>{selectedType?.label}</strong>. Aktifkan yang relevan, nonaktifkan yang tidak perlu. Bisa diubah kapan saja.
+              Kategori default untuk <strong style={{ color: '#0f0e0c' }}>{selectedType?.label}</strong>.{' '}
+              <strong style={{ color: '#0f0e0c' }}>Klik chip untuk uncheck</strong> kategori yang tidak relevan. Hanya yang terpilih (berwarna) yang akan disimpan.
             </p>
-            <CatSection label="Pemasukan" labelColor="#16a34a" defaults={DEFAULT_CATS[wsType].income} customs={customIncome} activeCats={incomeCats} onToggle={item => toggleCat('income', item)} addingFor={addingFor} addingTarget="income" onClickAdd={() => setAddingFor(addingFor === 'income' ? null : 'income')} newCatName={newCatName} onNewCatChange={setNewCatName} onAddConfirm={() => addCustomCat('income')} addBtnColor={SB} confirmBtnColor={GREEN} />
-            <CatSection label="Pengeluaran" labelColor="#dc2626" defaults={DEFAULT_CATS[wsType].expense} customs={customExpense} activeCats={expenseCats} onToggle={item => toggleCat('expense', item)} addingFor={addingFor} addingTarget="expense" onClickAdd={() => setAddingFor(addingFor === 'expense' ? null : 'expense')} newCatName={newCatName} onNewCatChange={setNewCatName} onAddConfirm={() => addCustomCat('expense')} addBtnColor={SB} confirmBtnColor="#dc2626" />
-            <div style={{ fontSize: 11.5, color: '#7a7469', marginBottom: 16, textAlign: 'center' }}>{incomeCats.length} pemasukan · {expenseCats.length} pengeluaran dipilih</div>
+            <CatSection
+              label="Pemasukan" labelColor="#16a34a"
+              defaults={DEFAULT_CATS[wsType].income} customs={customIncome}
+              activeCats={incomeCats} onToggle={item => toggleCat('income', item)}
+              onSelectAll={() => selectAll('income')} onDeselectAll={() => deselectAll('income')}
+              addingFor={addingFor} addingTarget="income"
+              onClickAdd={() => setAddingFor(addingFor === 'income' ? null : 'income')}
+              newCatName={newCatName} onNewCatChange={setNewCatName}
+              onAddConfirm={() => addCustomCat('income')}
+              addBtnColor={SB} confirmBtnColor={GREEN}
+            />
+            <CatSection
+              label="Pengeluaran" labelColor="#dc2626"
+              defaults={DEFAULT_CATS[wsType].expense} customs={customExpense}
+              activeCats={expenseCats} onToggle={item => toggleCat('expense', item)}
+              onSelectAll={() => selectAll('expense')} onDeselectAll={() => deselectAll('expense')}
+              addingFor={addingFor} addingTarget="expense"
+              onClickAdd={() => setAddingFor(addingFor === 'expense' ? null : 'expense')}
+              newCatName={newCatName} onNewCatChange={setNewCatName}
+              onAddConfirm={() => addCustomCat('expense')}
+              addBtnColor={SB} confirmBtnColor="#dc2626"
+            />
+            <div style={{ fontSize: 11.5, color: '#7a7469', marginBottom: 16, textAlign: 'center' }}>
+              {incomeCats.length} pemasukan · {expenseCats.length} pengeluaran dipilih
+            </div>
             {error && <p style={{ fontSize: 12, color: '#dc2626', marginBottom: 12 }}>{error}</p>}
-            <button onClick={handleCreate} disabled={creating} className="btn-press" style={{ width: '100%', padding: '12px', background: creating ? '#a3c9a0' : GREEN, color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: creating ? 'not-allowed' : 'pointer', fontFamily: 'inherit', marginBottom: 10 }}>
+            <button onClick={handleCreate} disabled={creating} className="btn-press"
+              style={{ width: '100%', padding: '12px', background: creating ? '#a3c9a0' : GREEN, color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: creating ? 'not-allowed' : 'pointer', fontFamily: 'inherit', marginBottom: 10 }}>
               {creating ? 'Membuat workspace...' : '✓ Buat Workspace'}
             </button>
-            <button onClick={() => { setStep(1); setError('') }} className="btn-press" style={{ width: '100%', padding: '10px', background: 'transparent', color: '#7a7469', border: '1px solid #E3DED6', borderRadius: 12, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>
+            <button onClick={() => { setStep(1); setError('') }} className="btn-press"
+              style={{ width: '100%', padding: '10px', background: 'transparent', color: '#7a7469', border: '1px solid #E3DED6', borderRadius: 12, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>
               ← Kembali
             </button>
           </div>
@@ -348,8 +400,14 @@ export default function SetupPage() {
                 <span style={{ fontSize: 11.5, fontWeight: 600, background: '#e8f4e8', color: '#2d5a27', border: '1px solid #b8d9b4', padding: '3px 10px', borderRadius: 99 }}>Aktif</span>
               </div>
             </div>
-            <button onClick={() => router.push('/dashboard')} className="btn-press" style={{ width: '100%', padding: '12px', background: GREEN, color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10 }}>Ke Dashboard →</button>
-            <button onClick={() => router.push('/dashboard/anggota')} className="btn-press" style={{ width: '100%', padding: '10px', background: 'transparent', color: '#7a7469', border: '1px solid #E3DED6', borderRadius: 12, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>Undang anggota sekarang</button>
+            <button onClick={() => router.push('/dashboard')} className="btn-press"
+              style={{ width: '100%', padding: '12px', background: GREEN, color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10 }}>
+              Ke Dashboard →
+            </button>
+            <button onClick={() => router.push('/dashboard/anggota')} className="btn-press"
+              style={{ width: '100%', padding: '10px', background: 'transparent', color: '#7a7469', border: '1px solid #E3DED6', borderRadius: 12, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>
+              Undang anggota sekarang
+            </button>
           </div>
         )}
       </div>
@@ -361,14 +419,23 @@ type CatSectionProps = {
   label: string; labelColor: string
   defaults: { name: string; icon: string }[]; customs: { name: string; icon: string }[]
   activeCats: { name: string; icon: string }[]; onToggle: (item: { name: string; icon: string }) => void
+  onSelectAll: () => void; onDeselectAll: () => void
   addingFor: 'income' | 'expense' | null; addingTarget: 'income' | 'expense'
   onClickAdd: () => void; newCatName: string; onNewCatChange: (v: string) => void
   onAddConfirm: () => void; addBtnColor: string; confirmBtnColor: string
 }
 
-function CatSection({ label, labelColor, defaults, customs, activeCats, onToggle, addingFor, addingTarget, onClickAdd, newCatName, onNewCatChange, onAddConfirm, addBtnColor, confirmBtnColor }: CatSectionProps) {
+function CatSection({
+  label, labelColor, defaults, customs, activeCats, onToggle,
+  onSelectAll, onDeselectAll,
+  addingFor, addingTarget, onClickAdd, newCatName, onNewCatChange, onAddConfirm,
+  addBtnColor, confirmBtnColor
+}: CatSectionProps) {
   const isActive = (name: string) => activeCats.some(c => c.name === name)
   const isIncome = addingTarget === 'income'
+  const totalCats = defaults.length + customs.length
+  const allSelected = activeCats.length >= totalCats && totalCats > 0
+
   const chipStyle = (active: boolean): React.CSSProperties => ({
     padding: '5px 12px', borderRadius: 99, fontSize: 12.5, fontWeight: 500,
     display: 'flex', alignItems: 'center', gap: 5,
@@ -376,29 +443,68 @@ function CatSection({ label, labelColor, defaults, customs, activeCats, onToggle
     background: active ? (isIncome ? '#e8f4e8' : '#fef2f2') : '#F5F2EB',
     color: active ? (isIncome ? '#2d5a27' : '#dc2626') : '#7a7469',
   })
+
   return (
     <div style={{ marginBottom: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <label style={{ fontSize: 11, fontWeight: 600, color: labelColor, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{isIncome ? '↑' : '↓'} {label}</label>
-        <button onClick={onClickAdd} style={{ fontSize: 11, color: addBtnColor, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>{addingFor === addingTarget ? '✕ Tutup' : '+ Tambah'}</button>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <label style={{ fontSize: 11, fontWeight: 600, color: labelColor, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+          {isIncome ? '↑' : '↓'} {label}
+          <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: '#9C9892', marginLeft: 6 }}>
+            ({activeCats.length}/{totalCats} dipilih)
+          </span>
+        </label>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* Tombol pilih semua / hapus semua */}
+          <button
+            onClick={allSelected ? onDeselectAll : onSelectAll}
+            style={{ fontSize: 10.5, color: allSelected ? '#9C9892' : addBtnColor, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
+            {allSelected ? '✕ Hapus semua' : '✓ Pilih semua'}
+          </button>
+          <button onClick={onClickAdd}
+            style={{ fontSize: 10.5, color: addBtnColor, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
+            {addingFor === addingTarget ? '✕ Tutup' : '+ Tambah'}
+          </button>
+        </div>
       </div>
+
+      {/* Hint visual */}
+      <p style={{ fontSize: 11, color: '#9C9892', margin: '0 0 8px', lineHeight: 1.4 }}>
+        Klik chip untuk {isIncome ? 'memilih/membatalkan' : 'memilih/membatalkan'} — yang <strong style={{ color: isIncome ? '#2d5a27' : '#dc2626' }}>berwarna</strong> = akan disimpan
+      </p>
+
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
         {defaults.map(cat => (
           <div key={cat.name} className="cat-chip" onClick={() => onToggle(cat)} style={chipStyle(isActive(cat.name))}>
-            <span>{cat.icon}</span><span>{cat.name}</span>
+            <span>{cat.icon}</span>
+            <span>{cat.name}</span>
+            {/* Tanda centang untuk yang aktif */}
+            {isActive(cat.name) && <span style={{ fontSize: 10 }}>✓</span>}
           </div>
         ))}
         {customs.map(cat => (
-          <div key={cat.name} className="cat-chip" onClick={() => onToggle(cat)} style={{ ...chipStyle(isActive(cat.name)), borderStyle: 'dashed' }}>
-            <span>{cat.icon}</span><span>{cat.name}</span>
-            {isActive(cat.name) && <span style={{ fontSize: 10 }}>✕</span>}
+          <div key={cat.name} className="cat-chip" onClick={() => onToggle(cat)}
+            style={{ ...chipStyle(isActive(cat.name)), borderStyle: 'dashed' }}>
+            <span>{cat.icon}</span>
+            <span>{cat.name}</span>
+            {isActive(cat.name) && <span style={{ fontSize: 10 }}>✓</span>}
           </div>
         ))}
       </div>
+
       {addingFor === addingTarget && (
         <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-          <input type="text" value={newCatName} onChange={e => onNewCatChange(e.target.value)} onKeyDown={e => e.key === 'Enter' && onAddConfirm()} placeholder="Nama kategori baru..." style={{ flex: 1, padding: '7px 10px', border: '1px solid #E3DED6', borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit' }} autoFocus />
-          <button onClick={onAddConfirm} style={{ padding: '7px 14px', background: confirmBtnColor, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>+ Tambah</button>
+          <input
+            type="text" value={newCatName}
+            onChange={e => onNewCatChange(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && onAddConfirm()}
+            placeholder="Nama kategori baru..."
+            style={{ flex: 1, padding: '7px 10px', border: '1px solid #E3DED6', borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit' }}
+            autoFocus
+          />
+          <button onClick={onAddConfirm}
+            style={{ padding: '7px 14px', background: confirmBtnColor, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+            + Tambah
+          </button>
         </div>
       )}
     </div>

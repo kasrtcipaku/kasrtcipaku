@@ -56,7 +56,6 @@ export default function EditTransactionPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
 
-      // Ambil workspace
       const { data: memberships, error: memErr } = await supabase
         .from('workspace_members')
         .select('workspace_id, workspaces(id, name, type)')
@@ -74,7 +73,6 @@ export default function EditTransactionPage() {
       const workspaceId: string = member.workspace_id
       setWorkspace({ ...ws, id: workspaceId })
 
-      // Ambil data transaksi yang akan diedit
       const { data: tx, error: txErr } = await supabase
         .from('transactions')
         .select('*')
@@ -88,7 +86,6 @@ export default function EditTransactionPage() {
         return
       }
 
-      // Isi form dengan data existing
       setType(tx.type)
       setAmount(tx.amount ? tx.amount.toLocaleString('id-ID') : '')
       setDate(tx.date)
@@ -98,15 +95,12 @@ export default function EditTransactionPage() {
       setNote(tx.note || '')
       setExistingAttachment(tx.attachment_url || null)
 
-      // Ambil kategori aktif + kategori yang dipakai transaksi ini
-      // (inklusif kategori nonaktif yang sudah dipilih, supaya tidak hilang)
       const { data: cats } = await supabase
         .from('categories')
         .select('id, name, icon, type, is_active')
         .eq('workspace_id', workspaceId)
         .order('name', { ascending: true })
 
-      // Tampilkan kategori aktif + kategori yang saat ini dipakai transaksi ini
       const filtered = (cats || []).filter((c: any) =>
         c.is_active || c.id === tx.category_id
       )
@@ -115,7 +109,6 @@ export default function EditTransactionPage() {
     })()
   }, [id])
 
-  // Reset categoryId saat type berubah (kecuali saat load awal)
   const [typeChanged, setTypeChanged] = useState(false)
   const handleTypeChange = (t: 'income' | 'expense') => {
     setType(t)
@@ -223,6 +216,8 @@ export default function EditTransactionPage() {
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes cat-pop { from{opacity:0;transform:scale(0.92)} to{opacity:1;transform:scale(1)} }
         .kbn-cat { animation: cat-pop 0.15s ease both; }
+        .manage-cat-link { transition: background 0.12s, color 0.12s; }
+        .manage-cat-link:hover { background: #EBF4FB !important; color: #5E96C0 !important; }
       `}</style>
 
       <div style={{ maxWidth: 620, margin: '0 auto', fontFamily: 'DM Sans, system-ui, sans-serif' }}>
@@ -280,15 +275,36 @@ export default function EditTransactionPage() {
 
         {/* Kategori */}
         <div style={card}>
-          <p style={sectionTitle}>
-            Kategori <span style={{ color: '#DC2626' }}>*</span>
-            <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: '#B0A89A', marginLeft: 6 }}>({filteredCats.length} tersedia)</span>
-          </p>
+          {/* Header section kategori dengan tombol Kelola */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <p style={{ ...sectionTitle, margin: 0 }}>
+              Kategori <span style={{ color: '#DC2626' }}>*</span>
+              <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: '#B0A89A', marginLeft: 6 }}>({filteredCats.length} tersedia)</span>
+            </p>
+            {/* Tombol Kelola Kategori — selalu tampil, bukan hanya saat kosong */}
+            <a
+              href="/dashboard/kategori"
+              className="manage-cat-link"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                fontSize: 11, fontWeight: 600, color: SB,
+                textDecoration: 'none', padding: '4px 8px',
+                borderRadius: 6, background: '#F0F6FB',
+                border: '1px solid #C8DFF0', whiteSpace: 'nowrap',
+              }}>
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                <path d="M1 6h10M6 1l5 5-5 5" stroke={SB} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Kelola Kategori
+            </a>
+          </div>
+
           {filteredCats.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '20px 0' }}>
               <div style={{ fontSize: 28, marginBottom: 8 }}>{isIncome ? '💰' : '💸'}</div>
-              <p style={{ fontSize: 12.5, color: '#8B7E6E', marginBottom: 12 }}>Belum ada kategori {isIncome ? 'pemasukan' : 'pengeluaran'}.</p>
-              <a href="/dashboard/kategori" style={{ fontSize: 12, color: SB, textDecoration: 'none', fontWeight: 500 }}>+ Tambah di halaman Kategori →</a>
+              <p style={{ fontSize: 12.5, color: '#8B7E6E', marginBottom: 0 }}>
+                Belum ada kategori {isIncome ? 'pemasukan' : 'pengeluaran'} aktif.
+              </p>
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>

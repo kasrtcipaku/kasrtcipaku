@@ -106,14 +106,8 @@ export default function SetupPage() {
 
   useEffect(() => {
     const supabase = createClient()
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) { router.push('/login'); return }
-      const { data, error } = await supabase
-        .from('workspaces')
-        .select('id, workspace_members!inner(user_id)')
-        .eq('workspace_members.user_id', user.id)
-        .limit(1)
-      if (!error && data?.length) router.push('/dashboard')
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) router.push('/login')
     })
   }, [])
 

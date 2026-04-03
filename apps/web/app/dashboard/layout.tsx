@@ -79,6 +79,21 @@ const navItems = [
   },
 ]
 
+// ── Breadcrumb helper ─────────────────────────────────────────────────────────
+function getPageLabel(pathname: string): string {
+  // Cari exact match dulu
+  const exact = navItems.find((item) => item.href === pathname)
+  if (exact) return exact.label
+
+  // Cari prefix match terpanjang (untuk sub-route seperti /dashboard/transaksi/baru)
+  const match = navItems
+    .filter((item) => item.href !== '/dashboard' && pathname.startsWith(item.href))
+    .sort((a, b) => b.href.length - a.href.length)[0]
+  if (match) return match.label
+
+  return 'Ringkasan'
+}
+
 const SB = '#7AAACE'
 const SB_DARK = '#5E96C0'
 const SIDEBAR_W = 232
@@ -118,6 +133,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const initials    = user.user_metadata?.full_name?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || '?'
   const displayName = user.user_metadata?.full_name || 'Pengguna'
+  const pageLabel   = getPageLabel(pathname)  // ← dinamis
 
   return (
     <>
@@ -164,7 +180,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               Menu
             </div>
             {navItems.map((item) => {
-              const active  = pathname === item.href
+              const active  = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
               const hovered = hoveredNav === item.href
               return (
                 <Link
@@ -260,11 +276,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <span style={{ fontSize: 14, fontWeight: 600, color: '#0F0E0C' }}>KasRT</span>
             </div>
 
-            {/* Desktop breadcrumb */}
+            {/* Desktop breadcrumb — dinamis */}
             <div className="kasrt-breadcrumb" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
               <span style={{ color: '#9C9892' }}>Dashboard</span>
               <span style={{ color: '#D4CFC4' }}>/</span>
-              <span style={{ color: '#0F0E0C', fontWeight: 500 }}>Ringkasan</span>
+              <span style={{ color: '#0F0E0C', fontWeight: 500 }}>{pageLabel}</span>
             </div>
 
             {/* Right actions */}

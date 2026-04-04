@@ -25,9 +25,9 @@ type DbCategory = {
 }
 
 export default function EditTransactionPage() {
-  const router = useRouter()
-  const params = useParams()
-  const id     = params.id as string
+  const router  = useRouter()
+  const params  = useParams()
+  const id      = params.id as string
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [workspace,    setWorkspace]    = useState<any>(null)
@@ -52,32 +52,38 @@ export default function EditTransactionPage() {
 
   useEffect(() => {
     ;(async () => {
+      // Gunakan getWorkspaceId agar konsisten — sudah filter owner/member dengan benar
+      const { getWorkspaceId } = await import('@/lib/get-workspace-id')
+      const { workspaceId } = await getWorkspaceId()
+
+      if (!workspaceId) {
+        router.push('/login')
+        return
+      }
+
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/login'); return }
 
-      const { data: memberships, error: memErr } = await supabase
-        .from('workspace_members')
-        .select('workspace_id, workspaces(id, name, type)')
-        .eq('user_id', user.id)
-        .limit(1)
+      // Ambil nama workspace
+      const { data: ws } = await supabase
+        .from('workspaces')
+        .select('id, name, type')
+        .eq('id', workspaceId)
+        .maybeSingle()
 
-      if (memErr || !memberships?.length) {
+      if (!ws) {
         setLoadError('Gagal memuat workspace.')
         setLoading(false)
         return
       }
 
-      const member      = memberships[0] as any
-      const ws          = member.workspaces
-      const workspaceId: string = member.workspace_id
       setWorkspace({ ...ws, id: workspaceId })
 
+      // Ambil transaksi — pastikan milik workspace ini
       const { data: tx, error: txErr } = await supabase
         .from('transactions')
         .select('*')
         .eq('id', id)
-        .eq('workspace_id', workspaceId)
+        .eq('workspace_id', workspaceId)  // ← selalu filter by workspace yg benar
         .single()
 
       if (txErr || !tx) {
@@ -156,6 +162,7 @@ export default function EditTransactionPage() {
         attachment_url: attachmentUrl,
       })
       .eq('id', id)
+      .eq('workspace_id', workspace.id)  // ← double-check workspace ownership
 
     if (updateError) {
       setError(updateError.message)
@@ -275,23 +282,13 @@ export default function EditTransactionPage() {
 
         {/* Kategori */}
         <div style={card}>
-          {/* Header section kategori dengan tombol Kelola */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <p style={{ ...sectionTitle, margin: 0 }}>
               Kategori <span style={{ color: '#DC2626' }}>*</span>
               <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: '#B0A89A', marginLeft: 6 }}>({filteredCats.length} tersedia)</span>
             </p>
-            {/* Tombol Kelola Kategori — selalu tampil, bukan hanya saat kosong */}
-            <a
-              href="/dashboard/kategori"
-              className="manage-cat-link"
-              style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                fontSize: 11, fontWeight: 600, color: SB,
-                textDecoration: 'none', padding: '4px 8px',
-                borderRadius: 6, background: '#F0F6FB',
-                border: '1px solid #C8DFF0', whiteSpace: 'nowrap',
-              }}>
+            <a href="/dashboard/kategori" className="manage-cat-link"
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: SB, textDecoration: 'none', padding: '4px 8px', borderRadius: 6, background: '#F0F6FB', border: '1px solid #C8DFF0', whiteSpace: 'nowrap' }}>
               <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
                 <path d="M1 6h10M6 1l5 5-5 5" stroke={SB} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>

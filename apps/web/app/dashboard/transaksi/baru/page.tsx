@@ -54,26 +54,31 @@ export default function NewTransactionPage() {
 
   useEffect(() => {
     ;(async () => {
+      // Gunakan getWorkspaceId agar konsisten — sudah filter owner
+      const { getWorkspaceId } = await import('@/lib/get-workspace-id')
+      const { workspaceId, isMember } = await getWorkspaceId()
+
+      if (!workspaceId) {
+        // Tidak ada session valid sama sekali
+        router.push('/login')
+        return
+      }
+
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/login'); return }
 
-      const { data: memberships, error: memErr } = await supabase
-        .from('workspace_members')
-        .select('workspace_id, workspaces(id, name, type)')
-        .eq('user_id', user.id)
-        .limit(1)
+      // Ambil nama workspace
+      const { data: ws, error: wsErr } = await supabase
+        .from('workspaces')
+        .select('id, name, type')
+        .eq('id', workspaceId)
+        .maybeSingle()
 
-      if (memErr || !memberships?.length) {
-        if (memErr) setLoadError('Gagal memuat workspace: ' + memErr.message)
-        else router.push('/setup')
+      if (wsErr || !ws) {
+        setLoadError('Gagal memuat workspace: ' + (wsErr?.message || 'tidak ditemukan'))
         setLoading(false)
         return
       }
 
-      const member      = memberships[0] as any
-      const ws          = member.workspaces
-      const workspaceId: string = member.workspace_id
       setWorkspace({ ...ws, id: workspaceId })
 
       const { data: cats, error: catErr } = await supabase
@@ -112,6 +117,8 @@ export default function NewTransactionPage() {
 
     setSubmitting(true)
     const supabase = createClient()
+
+    // Ambil created_by dari Supabase Auth (owner) atau null (member pakai session)
     const { data: { user } } = await supabase.auth.getUser()
 
     // Upload lampiran kalau ada
@@ -135,7 +142,7 @@ export default function NewTransactionPage() {
 
     const { error: insertError } = await supabase.from('transactions').insert({
       workspace_id:   workspace.id,
-      created_by:     user!.id,
+      created_by:     user?.id ?? null,
       type,
       amount:         parseAmount(amount),
       date,

@@ -42,10 +42,6 @@ export default function TransaksiPage() {
     ;(async () => {
       const { getWorkspaceId } = await import('@/lib/get-workspace-id')
       const result = await getWorkspaceId()
-
-      // DEBUG — cek di browser console (F12 → Console)
-      console.log('[TransaksiPage] getWorkspaceId result:', result)
-
       setWorkspaceId(result.workspaceId)
       setIsMember(result.isMember)
       setWsReady(true)
@@ -74,15 +70,30 @@ export default function TransaksiPage() {
 
   const fetchTransactions = useCallback(async () => {
     if (!workspaceId) {
-      console.log('[TransaksiPage] fetchTransactions: workspaceId null, skip')
       setLoading(false)
       return
     }
 
-    console.log('[TransaksiPage] fetchTransactions with workspaceId:', workspaceId)
     setLoading(true)
-    const supabase = createClient()
 
+    if (isMember) {
+      // Anggota — fetch via API route (pakai service role, bypass RLS)
+      const params = new URLSearchParams()
+      const range = getDateRange(filter)
+      if (range) { params.set('from', range.from); params.set('to', range.to) }
+      if (typeFilter !== 'all') params.set('type', typeFilter)
+      if (search.trim()) params.set('search', search.trim())
+
+      const res = await fetch(`/api/member-transactions?${params}`, { credentials: 'include' })
+      const json = await res.json()
+      setTransactions(json.data || [])
+      setLoading(false)
+      setPage(1)
+      return
+    }
+
+    // Owner — fetch langsung via Supabase client
+    const supabase = createClient()
     let query = supabase
       .from('transactions')
       .select('id, type, amount, description, date, categories(name, icon)')
@@ -94,14 +105,12 @@ export default function TransaksiPage() {
     if (typeFilter !== 'all') query = query.eq('type', typeFilter)
     if (search.trim()) query = query.ilike('description', `%${search}%`)
 
-    const { data, error } = await query
-    console.log('[TransaksiPage] query result:', { count: data?.length, error })
+    const { data } = await query
     setTransactions((data as any[]) || [])
     setLoading(false)
     setPage(1)
-  }, [workspaceId, filter, typeFilter, search])
+  }, [workspaceId, isMember, filter, typeFilter, search])
 
-  // Fetch hanya setelah workspaceId siap
   useEffect(() => {
     if (wsReady) fetchTransactions()
   }, [wsReady, fetchTransactions])
@@ -210,47 +219,24 @@ export default function TransaksiPage() {
             {loading ? 'Memuat...' : `${transactions.length} transaksi ditemukan`}
           </p>
         </div>
-        {/* Tombol tambah hanya untuk non-viewer */}
-        {!isMember && (
-          <Link
-            href="/dashboard/transaksi/baru"
-            onMouseEnter={() => setAddHover(true)}
-            onMouseLeave={() => setAddHover(false)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '8px 16px', background: addHover ? ACCENT_D : ACCENT,
-              color: '#fff', border: 'none', borderRadius: 9,
-              fontSize: 12.5, fontWeight: 500, cursor: 'pointer',
-              fontFamily: 'inherit', textDecoration: 'none',
-              transition: 'background 0.12s',
-            }}
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M6 1v10M1 6h10" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/>
-            </svg>
-            Tambah
-          </Link>
-        )}
-        {isMember && (
-          <Link
-            href="/dashboard/transaksi/baru"
-            onMouseEnter={() => setAddHover(true)}
-            onMouseLeave={() => setAddHover(false)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '8px 16px', background: addHover ? ACCENT_D : ACCENT,
-              color: '#fff', border: 'none', borderRadius: 9,
-              fontSize: 12.5, fontWeight: 500, cursor: 'pointer',
-              fontFamily: 'inherit', textDecoration: 'none',
-              transition: 'background 0.12s',
-            }}
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M6 1v10M1 6h10" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/>
-            </svg>
-            Tambah
-          </Link>
-        )}
+        <Link
+          href="/dashboard/transaksi/baru"
+          onMouseEnter={() => setAddHover(true)}
+          onMouseLeave={() => setAddHover(false)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '8px 16px', background: addHover ? ACCENT_D : ACCENT,
+            color: '#fff', border: 'none', borderRadius: 9,
+            fontSize: 12.5, fontWeight: 500, cursor: 'pointer',
+            fontFamily: 'inherit', textDecoration: 'none',
+            transition: 'background 0.12s',
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M6 1v10M1 6h10" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/>
+          </svg>
+          Tambah
+        </Link>
       </div>
 
       {/* Stat cards */}

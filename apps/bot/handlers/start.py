@@ -23,17 +23,26 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"• `bayar listrik 150rb`\n"
             f"• `terima iuran RT 50000`\n"
             f"• `beli bahan baku 200k`\n\n"
-            f"Perintah lain:\n"
+            f"*Perintah:*\n"
             f"/saldo — Lihat ringkasan bulan ini\n"
             f"/lunas — Tandai tagihan sudah dibayar\n"
+            f"/hubungkan — Hubungkan ulang ke workspace\n"
+            f"/putuskan — Putuskan koneksi workspace\n"
+            f"/masuk\_anggota — Masuk sebagai anggota\n"
+            f"/saldo\_anggota — Ringkasan saldo anggota\n"
+            f"/keluar\_anggota — Keluar sebagai anggota\n"
             f"/help — Bantuan lengkap",
             parse_mode="Markdown"
         )
     else:
         await update.message.reply_text(
-            "👋 Halo! Saya bot *KasRT* — asisten keuangan kamu.\n\n"
-            "Untuk mulai, hubungkan bot ini ke workspace kamu dengan perintah:\n"
-            "➡️ /hubungkan\n\n"
+            "👋 Halo! Saya bot *KasRT* — asisten keuangan RT kamu.\n\n"
+            "Untuk mulai, pilih salah satu:\n\n"
+            "👤 *Sebagai Owner Workspace:*\n"
+            "➡️ /hubungkan — Hubungkan bot ke workspace kamu\n\n"
+            "👥 *Sebagai Anggota:*\n"
+            "➡️ /masuk\_anggota — Masuk dengan kode anggota\n\n"
+            "❓ Butuh bantuan? Ketik /help\n\n"
             "Atau login ke kasrtcipaku.vercel.app dan ikuti langkah koneksi di sana.",
             parse_mode="Markdown"
         )
@@ -46,10 +55,15 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "• `terima iuran pak budi 50000`\n"
         "• `beli bahan baku 1.2jt`\n"
         "• `keluar untuk kebersihan 75k`\n\n"
-        "*Perintah:*\n"
+        "*Perintah Owner:*\n"
         "/saldo — Ringkasan bulan ini\n"
         "/lunas — Tandai tagihan sudah dibayar\n"
-        "/hubungkan — Hubungkan ke workspace\n"
+        "/hubungkan — Hubungkan bot ke workspace\n"
+        "/putuskan — Putuskan koneksi workspace\n\n"
+        "*Perintah Anggota:*\n"
+        "/masuk\_anggota — Masuk dengan kode anggota\n"
+        "/saldo\_anggota — Lihat ringkasan saldo\n"
+        "/keluar\_anggota — Keluar sebagai anggota\n\n"
         "/help — Tampilkan bantuan ini\n\n"
         "*Tips:*\n"
         "Bot pakai AI untuk mengerti pesan kamu. "
@@ -104,10 +118,8 @@ async def cmd_saldo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cmd_hubungkan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
-    # Generate kode unik 6 karakter
-    code = secrets.token_hex(3).upper()  # contoh: A3F9B2
+    code = secrets.token_hex(3).upper()
 
-    # Simpan ke tabel connect_codes dengan expiry 10 menit
     db = get_db()
     expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
     db.table("connect_codes").upsert({
@@ -153,7 +165,7 @@ async def cmd_lunas(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     keyboard = []
     for b in bills:
-        due   = b["due_date"][5:]  # MM-DD
+        due   = b["due_date"][5:]
         label = f"{b['title']} — {fmt_rupiah(b['amount'])} (due {due})"
         keyboard.append([InlineKeyboardButton(label, callback_data=f"lunas:{b['id']}")])
     keyboard.append([InlineKeyboardButton("Batal", callback_data="cancel")])
@@ -196,7 +208,6 @@ _waiting_member_code: set[int] = set()
 async def cmd_masuk_anggota(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
-    # Cek apakah sudah terhubung sebagai anggota
     link = get_telegram_member_link(chat_id)
     if link:
         member = link.get("workspace_members", {})
@@ -221,9 +232,6 @@ async def cmd_masuk_anggota(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 async def handle_member_code_input(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> bool:
-    """
-    Dipanggil dari handle_message — return True kalau pesan adalah input kode anggota.
-    """
     chat_id = update.effective_chat.id
     if chat_id not in _waiting_member_code:
         return False
@@ -240,7 +248,6 @@ async def handle_member_code_input(update: Update, ctx: ContextTypes.DEFAULT_TYP
         _waiting_member_code.discard(chat_id)
         return True
 
-    # Simpan link
     save_telegram_member_link(chat_id, member["id"])
     _waiting_member_code.discard(chat_id)
 

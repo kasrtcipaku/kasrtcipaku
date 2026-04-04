@@ -14,12 +14,21 @@ export async function POST(request: Request) {
 
     const serviceClient = createServiceClient()
 
+    // LOG 1: cek user
+    console.log('USER ID:', user.id)
+    console.log('USER EMAIL:', user.email)
+
     // Link user_id ke workspace_members berdasarkan email
-    await serviceClient
+    const { data: updateData, error: updateErr } = await serviceClient
       .from('workspace_members')
       .update({ user_id: user.id })
       .eq('email', user.email!)
       .is('user_id', null)
+      .select()
+
+    // LOG 2: cek hasil update
+    console.log('UPDATE RESULT:', JSON.stringify(updateData))
+    console.log('UPDATE ERROR:', JSON.stringify(updateErr))
 
     // Cari workspace_member record untuk user ini
     const { data: member, error: memberErr } = await serviceClient
@@ -30,6 +39,10 @@ export async function POST(request: Request) {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
+
+    // LOG 3: cek hasil query
+    console.log('MEMBER RESULT:', JSON.stringify(member))
+    console.log('MEMBER ERROR:', JSON.stringify(memberErr))
 
     if (memberErr || !member) {
       return NextResponse.json({ error: 'Data anggota tidak ditemukan.' }, { status: 404 })

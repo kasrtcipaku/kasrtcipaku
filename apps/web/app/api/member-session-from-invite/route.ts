@@ -15,7 +15,6 @@ export async function POST(request: Request) {
     const serviceClient = createServiceClient()
 
     // Link user_id ke workspace_members berdasarkan email
-    // (row dibuat saat accept_invitation, tapi user_id mungkin belum ter-link)
     await serviceClient
       .from('workspace_members')
       .update({ user_id: user.id })
@@ -55,7 +54,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Gagal membuat sesi.' }, { status: 500 })
     }
 
-    // Sign out dari Supabase Auth — jalur anggota tidak pakai Supabase Auth
+    // Sign out dari Supabase Auth
     await supabase.auth.signOut()
 
     const workspaceName = (member as any).workspaces?.name || 'Workspace'

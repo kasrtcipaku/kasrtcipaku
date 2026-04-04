@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from db import get_workspace_by_telegram, get_monthly_summary, get_unpaid_bills, fmt_rupiah, get_db
+from db import get_workspace_by_telegram, get_monthly_summary, get_unpaid_bills, fmt_rupiah, get_db, get_member_by_code, get_telegram_member_link, save_telegram_member_link, disconnect_telegram_member
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +186,143 @@ async def cmd_putuskan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"Workspace: *{ws_name}*\n\n"
         f"Setelah diputus, bot tidak bisa lagi mencatat transaksi "
         f"ke workspace ini. Kamu bisa hubungkan ulang kapan saja dengan /hubungkan.",
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+# ── State untuk input kode anggota ───────────────────────────
+_waiting_member_code: set[int] = set()
+
+async def cmd_masuk_anggota(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+
+    # Cek apakah sudah terhubung sebagai anggota
+    link = get_telegram_member_link(chat_id)
+    if link:
+        member = link.get("workspace_members", {})
+        ws     = member.get("workspaces", {}) if member else {}
+        ws_name = ws.get("name", "workspace") if ws else "workspace"
+        name    = member.get("display_name", "Anggota") if member else "Anggota"
+        await update.message.reply_text(
+            f"✅ Kamu sudah terhubung sebagai anggota *{ws_name}*.\n"
+            f"Nama: {name}\n\n"
+            f"Ketik /keluar\\_anggota untuk putus koneksi.",
+            parse_mode="Markdown"
+        )
+        return
+
+    _waiting_member_code.add(chat_id)
+    await update.message.reply_text(
+        "🔑 *Masuk sebagai Anggota*\n\n"
+        "Kirimkan kode anggota kamu.\n"
+        "Contoh: `HIJAU-429` atau `BINTANG-071`\n\n"
+        "Kode bisa didapat dari pemilik workspace.",
+        parse_mode="Markdown"
+    )
+
+async def handle_member_code_input(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> bool:
+    """
+    Dipanggil dari handle_message — return True kalau pesan adalah input kode anggota.
+    """
+    chat_id = update.effective_chat.id
+    if chat_id not in _waiting_member_code:
+        return False
+
+    code = update.message.text.strip().upper()
+    member = get_member_by_code(code)
+
+    if not member:
+        await update.message.reply_text(
+            "❌ Kode tidak ditemukan. Periksa kembali kode kamu.\n\n"
+            "Ketik /masuk\\_anggota untuk coba lagi.",
+            parse_mode="Markdown"
+        )
+        _waiting_member_code.discard(chat_id)
+        return True
+
+    # Simpan link
+    save_telegram_member_link(chat_id, member["id"])
+    _waiting_member_code.discard(chat_id)
+
+    ws_name = member.get("workspaces", {}).get("name", "workspace") if member.get("workspaces") else "workspace"
+    name    = member.get("display_name") or "Anggota"
+
+    await update.message.reply_text(
+        f"✅ *Berhasil masuk sebagai Anggota!*\n\n"
+        f"Workspace : *{ws_name}*\n"
+        f"Nama      : {name}\n"
+        f"Role      : {member.get('role', 'member')}\n\n"
+        f"Kamu bisa catat transaksi dan cek tagihan.\n"
+        f"Ketik /saldo\\_anggota untuk lihat ringkasan.",
+        parse_mode="Markdown"
+    )
+    return True
+
+async def cmd_saldo_anggota(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    link    = get_telegram_member_link(chat_id)
+
+    if not link:
+        await update.message.reply_text(
+            "⚠️ Kamu belum masuk sebagai anggota. Ketik /masuk\\_anggota dulu.",
+            parse_mode="Markdown"
+        )
+        return
+
+    member  = link.get("workspace_members", {})
+    ws      = member.get("workspaces", {}) if member else {}
+    ws_id   = member.get("workspace_id") if member else None
+    ws_name = ws.get("name", "workspace") if ws else "workspace"
+
+    if not ws_id:
+        await update.message.reply_text("⚠️ Data workspace tidak ditemukan.")
+        return
+
+    await update.message.reply_text("⏳ Mengambil data...")
+
+    summary = get_monthly_summary(ws_id)
+    bills   = get_unpaid_bills(ws_id)
+
+    sign = "🟢" if summary["balance"] >= 0 else "🔴"
+    text = (
+        f"📊 *Ringkasan {summary['month']} — {ws_name}*\n"
+        f"{'─' * 28}\n"
+        f"💚 Pemasukan : {fmt_rupiah(summary['income'])}\n"
+        f"❤️  Pengeluaran: {fmt_rupiah(summary['expense'])}\n"
+        f"{'─' * 28}\n"
+        f"{sign} Saldo     : *{fmt_rupiah(summary['balance'])}*\n"
+        f"📝 Total transaksi: {summary['count']}\n"
+    )
+
+    if bills:
+        text += f"\n⚠️ *Tagihan belum lunas ({len(bills)}):*\n"
+        for b in bills:
+            due = b["due_date"][5:]
+            text += f"• {b['title']} — {fmt_rupiah(b['amount'])} (jatuh tempo {due})\n"
+
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+async def cmd_keluar_anggota(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    link    = get_telegram_member_link(chat_id)
+
+    if not link:
+        await update.message.reply_text("⚠️ Kamu belum masuk sebagai anggota.")
+        return
+
+    member  = link.get("workspace_members", {})
+    ws      = member.get("workspaces", {}) if member else {}
+    ws_name = ws.get("name", "workspace") if ws else "workspace"
+
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Ya, keluar", callback_data=f"keluar_anggota:{chat_id}"),
+        InlineKeyboardButton("❌ Batal",      callback_data="cancel"),
+    ]])
+
+    await update.message.reply_text(
+        f"⚠️ Keluar dari workspace *{ws_name}* sebagai anggota?\n\n"
+        f"Kamu bisa masuk lagi kapan saja dengan /masuk\\_anggota.",
         parse_mode="Markdown",
         reply_markup=keyboard
     )

@@ -3,7 +3,7 @@ import uuid
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from db import get_workspace_by_telegram, get_categories, fmt_rupiah
+from db import get_workspace_by_telegram, get_categories, fmt_rupiah, get_telegram_member_link
 from parser import parse_transaction
 
 logger = logging.getLogger(__name__)
@@ -15,16 +15,32 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text    = update.message.text.strip()
 
-    link = get_workspace_by_telegram(chat_id)
-    if not link:
+    # Cek dulu apakah sedang input kode anggota
+    from handlers.start import handle_member_code_input
+    if await handle_member_code_input(update, ctx):
+        return
+
+    # Cek link owner dulu, lalu anggota
+    link        = get_workspace_by_telegram(chat_id)
+    member_link = get_telegram_member_link(chat_id) if not link else None
+
+    if not link and not member_link:
         await update.message.reply_text(
             "Workspace belum terhubung.\n"
-            "Ketik /hubungkan untuk menghubungkan bot ke akun KasRT kamu."
+            "• Owner: ketik /hubungkan\n"
+            "• Anggota: ketik /masuk\_anggota",
+            parse_mode="Markdown"
         )
         return
 
-    ws_id   = link["workspace_id"]
-    user_id = link["user_id"]
+    if member_link:
+        # Jalur anggota
+        member  = member_link.get("workspace_members", {})
+        ws_id   = member.get("workspace_id") if member else None
+        user_id = None  # anggota tidak punya user_id Supabase Auth
+    else:
+        ws_id   = link["workspace_id"]
+        user_id = link["user_id"]
 
     await update.message.reply_chat_action("typing")
 

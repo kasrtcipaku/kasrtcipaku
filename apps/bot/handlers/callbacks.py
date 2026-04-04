@@ -2,7 +2,7 @@
 import logging
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
-from db import insert_transaction, fmt_rupiah, mark_bill_paid, disconnect_telegram
+from db import insert_transaction, fmt_rupiah, mark_bill_paid, disconnect_telegram, disconnect_telegram_member
 from handlers.messages import get_pending
 
 logger = logging.getLogger(__name__)
@@ -87,4 +87,19 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 "Gagal memutus koneksi. Coba lagi nanti."
             )
+        return
+
+    # ── Keluar sebagai anggota ────────────────────────────────────
+    if data.startswith("keluar_anggota:"):
+        chat_id_to_disconnect = int(data[15:])
+        try:
+            disconnect_telegram_member(chat_id_to_disconnect)
+            await query.edit_message_text(
+                "✅ Kamu sudah keluar sebagai anggota.\n\n"
+                "Ketik /masuk\_anggota untuk masuk lagi dengan kode anggota.",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"Keluar anggota error: {e}")
+            await query.edit_message_text("Gagal keluar. Coba lagi nanti.")
         return

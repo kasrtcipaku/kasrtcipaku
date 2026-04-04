@@ -32,7 +32,25 @@ export default function TransaksiPage() {
   const [newItem, setNewItem]           = useState<string | null>(null)
   const [hoveredRow, setHoveredRow]     = useState<string | null>(null)
   const [addHover, setAddHover]         = useState(false)
+  const [workspaceId, setWorkspaceId]   = useState<string | null>(null)
+  const [isMember, setIsMember]         = useState(false)
+  const [wsReady, setWsReady]           = useState(false)
   const PER_PAGE = 20
+
+  // ── Resolve workspace sekali saat mount ──────────────────────────────────
+  useEffect(() => {
+    ;(async () => {
+      const { getWorkspaceId } = await import('@/lib/get-workspace-id')
+      const result = await getWorkspaceId()
+
+      // DEBUG — cek di browser console (F12 → Console)
+      console.log('[TransaksiPage] getWorkspaceId result:', result)
+
+      setWorkspaceId(result.workspaceId)
+      setIsMember(result.isMember)
+      setWsReady(true)
+    })()
+  }, [])
 
   const getDateRange = (period: FilterPeriod) => {
     const now = new Date()
@@ -55,12 +73,16 @@ export default function TransaksiPage() {
   }
 
   const fetchTransactions = useCallback(async () => {
-    setLoading(true)
-    const { getWorkspaceId } = await import('@/lib/get-workspace-id')
-    const { workspaceId } = await getWorkspaceId()
-    if (!workspaceId) { setLoading(false); return }
+    if (!workspaceId) {
+      console.log('[TransaksiPage] fetchTransactions: workspaceId null, skip')
+      setLoading(false)
+      return
+    }
 
+    console.log('[TransaksiPage] fetchTransactions with workspaceId:', workspaceId)
+    setLoading(true)
     const supabase = createClient()
+
     let query = supabase
       .from('transactions')
       .select('id, type, amount, description, date, categories(name, icon)')
@@ -72,13 +94,17 @@ export default function TransaksiPage() {
     if (typeFilter !== 'all') query = query.eq('type', typeFilter)
     if (search.trim()) query = query.ilike('description', `%${search}%`)
 
-    const { data } = await query
+    const { data, error } = await query
+    console.log('[TransaksiPage] query result:', { count: data?.length, error })
     setTransactions((data as any[]) || [])
     setLoading(false)
     setPage(1)
-  }, [filter, typeFilter, search])
+  }, [workspaceId, filter, typeFilter, search])
 
-  useEffect(() => { fetchTransactions() }, [fetchTransactions])
+  // Fetch hanya setelah workspaceId siap
+  useEffect(() => {
+    if (wsReady) fetchTransactions()
+  }, [wsReady, fetchTransactions])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -119,7 +145,6 @@ export default function TransaksiPage() {
     borderRadius: 12,
   } as const
 
-  // Pill style helper
   const pillStyle = (active: boolean, variant?: 'income' | 'expense' | 'accent') => ({
     padding: '5px 12px',
     borderRadius: 7,
@@ -185,24 +210,47 @@ export default function TransaksiPage() {
             {loading ? 'Memuat...' : `${transactions.length} transaksi ditemukan`}
           </p>
         </div>
-        <Link
-          href="/dashboard/transaksi/baru"
-          onMouseEnter={() => setAddHover(true)}
-          onMouseLeave={() => setAddHover(false)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '8px 16px', background: addHover ? ACCENT_D : ACCENT,
-            color: '#fff', border: 'none', borderRadius: 9,
-            fontSize: 12.5, fontWeight: 500, cursor: 'pointer',
-            fontFamily: 'inherit', textDecoration: 'none',
-            transition: 'background 0.12s',
-          }}
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M6 1v10M1 6h10" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/>
-          </svg>
-          Tambah
-        </Link>
+        {/* Tombol tambah hanya untuk non-viewer */}
+        {!isMember && (
+          <Link
+            href="/dashboard/transaksi/baru"
+            onMouseEnter={() => setAddHover(true)}
+            onMouseLeave={() => setAddHover(false)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px', background: addHover ? ACCENT_D : ACCENT,
+              color: '#fff', border: 'none', borderRadius: 9,
+              fontSize: 12.5, fontWeight: 500, cursor: 'pointer',
+              fontFamily: 'inherit', textDecoration: 'none',
+              transition: 'background 0.12s',
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M6 1v10M1 6h10" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/>
+            </svg>
+            Tambah
+          </Link>
+        )}
+        {isMember && (
+          <Link
+            href="/dashboard/transaksi/baru"
+            onMouseEnter={() => setAddHover(true)}
+            onMouseLeave={() => setAddHover(false)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px', background: addHover ? ACCENT_D : ACCENT,
+              color: '#fff', border: 'none', borderRadius: 9,
+              fontSize: 12.5, fontWeight: 500, cursor: 'pointer',
+              fontFamily: 'inherit', textDecoration: 'none',
+              transition: 'background 0.12s',
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M6 1v10M1 6h10" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/>
+            </svg>
+            Tambah
+          </Link>
+        )}
       </div>
 
       {/* Stat cards */}
@@ -262,7 +310,6 @@ export default function TransaksiPage() {
 
       {/* Table */}
       <div style={{ ...card, overflow: 'hidden' }}>
-        {/* Table header */}
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 120px 140px 72px', padding: '10px 18px', borderBottom: '1px solid #F2EDE5', background: '#FAFAF8' }}>
           {['Transaksi', 'Tanggal', 'Jumlah', 'Aksi'].map((h, i) => (
             <div key={h} style={{ fontSize: 10.5, fontWeight: 600, color: '#8B7E6E', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: i >= 2 ? 'right' : 'left' }}>
@@ -317,7 +364,6 @@ export default function TransaksiPage() {
                     animationDelay: isNew ? '0s' : `${i * 0.025}s`,
                   }}
                 >
-                  {/* Transaksi */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                     <div style={{
                       width: 32, height: 32, borderRadius: 9, flexShrink: 0,
@@ -341,18 +387,16 @@ export default function TransaksiPage() {
                     </div>
                   </div>
 
-                  {/* Tanggal */}
                   <div style={{ fontSize: 12, color: '#8B7E6E' }}>
                     {new Date(t.date).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })}
                   </div>
 
-                  {/* Jumlah */}
                   <div style={{ fontSize: 12.5, fontWeight: 600, color: t.type === 'income' ? '#15803D' : '#DC2626', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                     {t.type === 'income' ? '+' : '−'}{fmt(t.amount)}
                   </div>
 
-                  {/* Aksi */}
-                  <div style={{ display: 'flex', gap: 3, justifyContent: 'flex-end', opacity: hovered ? 1 : 0, transition: 'opacity 0.15s' }}>
+                  {/* Aksi — sembunyikan edit/hapus untuk member */}
+                  <div style={{ display: 'flex', gap: 3, justifyContent: 'flex-end', opacity: hovered && !isMember ? 1 : 0, transition: 'opacity 0.15s' }}>
                     <Link
                       href={`/dashboard/transaksi/${t.id}/edit`}
                       title="Edit"
@@ -378,7 +422,6 @@ export default function TransaksiPage() {
           </div>
         )}
 
-        {/* Pagination */}
         {totalPages > 1 && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 18px', borderTop: '1px solid #F2EDE5', background: '#FAFAF8' }}>
             <span style={{ fontSize: 11.5, color: '#8B7E6E' }}>
@@ -403,8 +446,8 @@ export default function TransaksiPage() {
         )}
       </div>
 
-      {/* Delete modal */}
-      {deleteId && (
+      {/* Delete modal — sembunyikan untuk member */}
+      {deleteId && !isMember && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
           onClick={() => setDeleteId(null)}

@@ -61,7 +61,6 @@ export default function AnggotaPage() {
   const [kickId, setKickId]           = useState<string | null>(null)
   const [kicking, setKicking]         = useState(false)
 
-  // ── Query langsung ke profiles — jauh lebih cepat dari RPC cross-schema ────
   const fetchAll = useCallback(async (wsId: string) => {
     setLoading(true)
     const supabase = createClient()
@@ -79,11 +78,9 @@ export default function AnggotaPage() {
         .gt('expires_at', new Date().toISOString()),
     ])
 
-    // Ambil email dari auth.users via RPC atau fallback ke user_id
     const rawMembers = membRes.data || []
     const userIds = rawMembers.map((m: any) => m.user_id)
 
-    // Coba ambil dari tabel profiles dulu, fallback ke kosong
     const { data: profilesData } = await supabase
       .from('profiles')
       .select('id, full_name, email')
@@ -114,13 +111,17 @@ export default function AnggotaPage() {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return
       setMyUserId(user.id)
+
+      // ── FIX: filter role = 'owner' agar tidak ambil workspace orang lain ──
       const { data: m } = await supabase
         .from('workspace_members')
         .select('workspace_id, role')
         .eq('user_id', user.id)
+        .eq('role', 'owner')   // ← hanya workspace milik sendiri
         .limit(1)
-        .single()
-      if (!m) return
+        .maybeSingle()
+
+      if (!m) return  // user tidak punya workspace sendiri
       setWorkspaceId(m.workspace_id)
       setMyRole(m.role)
       fetchAll(m.workspace_id)
@@ -176,7 +177,7 @@ export default function AnggotaPage() {
     setCopiedCode(code); setTimeout(() => setCopiedCode(null), 2000)
   }
 
-  const canManage = myRole === 'owner'  // hanya owner yang bisa undang, kick, dll
+  const canManage = myRole === 'owner'
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -323,7 +324,7 @@ export default function AnggotaPage() {
         )}
 
         {!loading && members.map((m, i) => {
-          const rc = ROLE_COLOR[m.role]
+          const rc = ROLE_COLOR[m.role] ?? ROLE_COLOR['member']
           const isMe = m.user_id === myUserId
           return (
             <div key={m.member_id} className="member-row fade-up" style={{
@@ -345,7 +346,9 @@ export default function AnggotaPage() {
                   </span>
                   {isMe && <span style={{ fontSize:10, background:'#f5f2eb', color:'#7a7469', padding:'2px 7px', borderRadius:99, fontWeight:600, flexShrink:0 }}>Kamu</span>}
                 </div>
-                <p style={{ fontSize:12, color:'#7a7469', margin:'2px 0 0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.email || <span style={{color:'#c4bfb8',fontStyle:'italic'}}>Email tidak tersedia</span>}</p>
+                <p style={{ fontSize:12, color:'#7a7469', margin:'2px 0 0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                  {m.email || <span style={{color:'#c4bfb8',fontStyle:'italic'}}>Email tidak tersedia</span>}
+                </p>
                 {m.joined_at && <p style={{ fontSize:11, color:'#a8a39a', margin:'2px 0 0' }}>Bergabung {fmt(m.joined_at)}</p>}
                 {m.role === 'member' && m.member_code && (
                   <div style={{ marginTop:5 }}>
@@ -364,19 +367,19 @@ export default function AnggotaPage() {
                 )}
               </div>
 
-              {/* Badge role — statis, tidak ada dropdown karena hanya 2 role */}
+              {/* Badge role */}
               <span style={{ fontSize:12, fontWeight:600, padding:'5px 10px', borderRadius:8, border:`1.5px solid ${rc.border}`, background:rc.bg, color:rc.text, whiteSpace:'nowrap' }}>
                 {ROLE_LABEL[m.role] || m.role}
               </span>
 
-              {/* Tombol kick — hanya owner/admin, tidak bisa kick diri sendiri */}
+              {/* Tombol kick — hanya owner, tidak bisa kick diri sendiri */}
               {canManage && m.role !== 'owner' && !isMe && (
                 <button onClick={() => setKickId(m.member_id)} className="btn-press" title="Keluarkan" style={{
                   width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center',
                   border:'none', background:'transparent', cursor:'pointer', borderRadius:8, color:'#c4bfb8', fontSize:14,
                 }}>✕</button>
               )}
-              {/* Tombol keluar — hanya untuk diri sendiri, bukan viewer (viewer pasif) */}
+              {/* Tombol keluar — untuk diri sendiri, bukan owner */}
               {isMe && m.role !== 'owner' && (
                 <button onClick={() => setKickId(m.member_id)} className="btn-press" style={{
                   fontSize:12, padding:'5px 12px', border:'1px solid #fecaca', borderRadius:8,

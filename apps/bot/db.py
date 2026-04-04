@@ -249,3 +249,46 @@ def _now_iso() -> str:
 
 def fmt_rupiah(n: int) -> str:
     return f"Rp {n:,.0f}".replace(",", ".")
+
+# ── Anggota (member_session via kode unik) ────────────────────
+
+def get_member_by_code(member_code: str) -> dict | None:
+    """Cari anggota berdasarkan kode unik."""
+    db = get_db()
+    res = (
+        db.table("workspace_members")
+        .select("id, role, display_name, workspace_id, member_code, workspaces(id, name)")
+        .eq("member_code", member_code.strip().upper())
+        .limit(1)
+        .execute()
+    )
+    if res.data:
+        return res.data[0]
+    return None
+
+def get_telegram_member_link(telegram_id: int) -> dict | None:
+    """Cari link anggota berdasarkan telegram_chat_id."""
+    db = get_db()
+    res = (
+        db.table("telegram_member_links")
+        .select("workspace_member_id, telegram_chat_id, workspace_members(id, role, display_name, workspace_id, workspaces(id, name))")
+        .eq("telegram_chat_id", telegram_id)
+        .limit(1)
+        .execute()
+    )
+    if res.data:
+        return res.data[0]
+    return None
+
+def save_telegram_member_link(telegram_id: int, workspace_member_id: str):
+    """Simpan link telegram ↔ anggota."""
+    db = get_db()
+    db.table("telegram_member_links").upsert({
+        "telegram_chat_id":    telegram_id,
+        "workspace_member_id": workspace_member_id,
+    }).execute()
+
+def disconnect_telegram_member(telegram_id: int):
+    """Putuskan koneksi anggota dari Telegram."""
+    db = get_db()
+    db.table("telegram_member_links").delete().eq("telegram_chat_id", telegram_id).execute()

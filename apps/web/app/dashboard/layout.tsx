@@ -13,7 +13,6 @@ const dmSans = DM_Sans({
   display: 'swap',
 })
 
-// ── Tipe session yang bisa masuk dashboard ────────────────────────────────────
 type SessionType = 'owner' | 'member' | null
 
 interface MemberInfo {
@@ -92,7 +91,6 @@ const navItems = [
   },
 ]
 
-// Nav items yang boleh diakses member (role: member/viewer)
 const MEMBER_ALLOWED_HREFS = [
   '/dashboard',
   '/dashboard/transaksi',
@@ -128,7 +126,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const { data: { user } } = await supabase.auth.getUser()
 
       if (user) {
-        // Cek apakah dia owner workspace
         const { data: ownerCheck } = await supabase
           .from('workspace_members')
           .select('workspace_id')
@@ -138,9 +135,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           .maybeSingle()
 
         if (ownerCheck?.workspace_id) {
-          // Confirmed owner — set sebagai owner
-          // TIDAK memanggil member-logout di sini agar tidak merusak
-          // member_session yang mungkin baru saja di-set dari alur join
           setInfo({
             sessionType: 'owner',
             displayName: user.user_metadata?.full_name || 'Pengguna',
@@ -150,18 +144,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           return
         }
 
-        // Supabase Auth aktif tapi bukan owner (misal sisa sesi lama dari alur join
-        // yang belum sempat sign out) — sign out saja, JANGAN hapus member_session,
-        // lanjut cek member_session cookie di bawah
-        await supabase.auth.signOut()
+        // Kalau ada member_session cookie, jangan signOut dulu
+        // biarkan flow lanjut ke cek member_session di bawah
+        const hasMemberCookie = document.cookie.includes('member_session')
+        if (!hasMemberCookie) {
+          await supabase.auth.signOut()
+        }
       }
 
-      // 2. Coba member_session cookie (anggota)
+      // Cek member_session cookie
       const res = await fetch('/api/member-session', { credentials: 'include' })
       if (res.ok) {
         const data = await res.json()
         if (data.valid) {
-          // Cek apakah halaman ini diizinkan untuk member
           const allowed = MEMBER_ALLOWED_HREFS.some(
             href => pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
           )
@@ -180,8 +175,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
       }
 
-      // 3. Tidak ada session valid → redirect ke login
-      router.push('/')
+      // Tidak ada session valid → redirect ke login
+      router.push('/login')
     }
 
     checkAuth()
@@ -189,11 +184,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const handleLogout = async () => {
     if (info?.sessionType === 'member') {
-      // Hapus member_session cookie lalu ke halaman login anggota
       await fetch('/api/member-logout', { method: 'POST', credentials: 'include' })
       router.push('/login/anggota')
     } else {
-      // Owner — hapus member_session (bersih-bersih) lalu sign out Supabase Auth
       await fetch('/api/member-logout', { method: 'POST', credentials: 'include' })
       const supabase = createClient()
       await supabase.auth.signOut()
@@ -215,7 +208,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pageLabel = getPageLabel(pathname)
   const isMember  = info.sessionType === 'member'
 
-  // Filter nav untuk member
   const visibleNavItems = isMember
     ? navItems.filter(item => MEMBER_ALLOWED_HREFS.includes(item.href))
     : navItems
@@ -369,10 +361,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </svg>
                 Cari...
               </div>
-              {/* Tombol + Transaksi hanya muncul untuk non-viewer */}
               {(!isMember || info.role !== 'viewer') && (
+                
                 <a
-                  href="/dashboard/transaksi/baru"
+                href="/dashboard/transaksi/baru"
                   style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', background: SB, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none' }}
                 >
                   <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>

@@ -271,14 +271,14 @@ export default function LandingPage() {
             <p className="quote-text">
               KasRT membantu saya mengelola keuangan dengan lebih fleksibel.
             </p>
-            <div className="quote-author">— Ibu Sudarsa, Ibu Rumah Tangga </div>
+            <div className="quote-author">— Ulasan fiktif, disini akan terdapat terstimoni warga </div>
             <div>
               <span className="quote-tag">
                 <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
                   <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.2"/>
                   <path d="M5 3v2l1.5 1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                 </svg>
-                Pengguna aktif sejak 2026
+                Pengguna aktif sejak 2...
               </span>
             </div>
           </div>
@@ -287,7 +287,7 @@ export default function LandingPage() {
 
         {/* Footer */}
         <div className="footer">
-          <span className="footer-text">© 2025 KasRT · keuangan bersama</span>
+          <span className="footer-text">© 2026 KasRT · keuangan bersama</span>
           <span className="badge">
             <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
               <circle cx="4" cy="4" r="3" fill="#6effa0"/>

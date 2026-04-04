@@ -4,10 +4,12 @@ load_dotenv()
 import os
 import asyncio
 import logging
+import traceback
 import requests as req_lib
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request, jsonify
 from telegram import Update
+from telegram.request import HTTPXRequest
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters
@@ -41,8 +43,34 @@ if APP_URL:
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
-# ── Telegram Application ──────────────────────────────────────
-app_bot = Application.builder().token(TOKEN).build()
+# ── Telegram Application (dengan custom timeout) ──────────────
+# Timeout dinaikkan karena Gemini API bisa lambat hingga 30+ detik
+app_bot = (
+    Application.builder()
+    .token(TOKEN)
+    .request(HTTPXRequest(
+        connect_timeout=60,
+        read_timeout=60,
+        write_timeout=60,
+        pool_timeout=60,
+    ))
+    .build()
+)
+
+# ── Error Handler ─────────────────────────────────────────────
+async def error_handler(update: object, context) -> None:
+    logger.error(f"Unhandled exception: {context.error}")
+    logger.error(traceback.format_exc())
+    # Kalau ada pesan dari user, balas dengan pesan error
+    if isinstance(update, Update) and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "Maaf, terjadi kesalahan. Coba lagi nanti."
+            )
+        except Exception:
+            pass  # Jangan sampai error handler malah error lagi
+
+app_bot.add_error_handler(error_handler)
 
 app_bot.add_handler(CommandHandler("start",          cmd_start))
 app_bot.add_handler(CommandHandler("saldo",          cmd_saldo))
@@ -86,16 +114,12 @@ def cron_monthly_report():
     """
     Dipanggil cron-job.org tiap tanggal 1 jam 07:00 WIB (00:00 UTC).
     Kirim laporan bulan berjalan ke semua workspace yang terhubung Telegram.
-    Karena dikirim di akhir/awal bulan, data yang diambil adalah bulan saat cron berjalan.
     """
     # Validasi secret
     secret = request.headers.get("x-cron-secret", "")
     if secret != os.environ.get("CRON_SECRET", ""):
         return jsonify({"error": "unauthorized"}), 401
 
-    # Gunakan bulan berjalan (bukan bulan lalu)
-    # Cron jalan tiap tgl 1, tapi laporan tetap ambil bulan ini
-    # sehingga saat testing kapan pun, data bulan sekarang selalu keambil
     now   = datetime.now(timezone(timedelta(hours=7)))  # WIB
     month = now.month
     year  = now.year

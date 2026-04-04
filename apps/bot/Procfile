@@ -1,1 +1,1 @@
-web: gunicorn --workers 1 --bind 0.0.0.0:$PORT main:flask_app
+web: gunicorn --workers 1 --bind 0.0.0.0:$PORT --timeout 120 --worker-class sync main:flask_app

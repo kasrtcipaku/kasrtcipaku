@@ -5,7 +5,6 @@ import time
 import logging
 import threading
 import google.generativeai as genai
-from google.generativeai.types import GenerationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -18,16 +17,10 @@ _MODEL_OPTIONS = [
     "models/gemini-1.0-pro",
 ]
 
-# GenerationConfig: output pendek + deterministik = lebih cepat
-_GEN_CONFIG = GenerationConfig(
-    max_output_tokens=150,  # JSON output pendek, tidak perlu banyak
-    temperature=0.1,        # deterministik, kurangi variasi = lebih cepat
-)
-
 def _init_model():
     for model_name in _MODEL_OPTIONS:
         try:
-            m = genai.GenerativeModel(model_name, generation_config=_GEN_CONFIG)
+            m = genai.GenerativeModel(model_name)
             m.generate_content("hi")
             logger.info(f"Model aktif: {model_name}")
             return m
@@ -42,7 +35,7 @@ def _init_model():
         ]
         logger.info(f"Model tersedia: {available}")
         if available:
-            m = genai.GenerativeModel(available[0], generation_config=_GEN_CONFIG)
+            m = genai.GenerativeModel(available[0])
             logger.info(f"Pakai model: {available[0]}")
             return m
     except Exception as e:

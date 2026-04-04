@@ -42,11 +42,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         ws_id   = link["workspace_id"]
         user_id = link["user_id"]
 
-    # Typing indicator — tidak masalah kalau gagal, proses tetap lanjut
-    try:
-        await update.message.reply_chat_action("typing")
-    except Exception:
-        pass
+    await update.message.reply_chat_action("typing")
 
     categories = get_categories(ws_id)
     if not categories:

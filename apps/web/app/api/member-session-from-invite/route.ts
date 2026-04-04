@@ -3,9 +3,8 @@ import { createServiceClient } from '@/lib/supabase/server-service'
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
-    // Ambil Supabase Auth user (masih aktif saat ini, sebelum sign out)
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
@@ -15,7 +14,15 @@ export async function POST() {
 
     const serviceClient = createServiceClient()
 
-    // Ambil workspace_member terbaru untuk user ini yang bukan owner
+    // Link user_id ke workspace_members berdasarkan email
+    // (row dibuat saat accept_invitation, tapi user_id mungkin belum ter-link)
+    await serviceClient
+      .from('workspace_members')
+      .update({ user_id: user.id })
+      .eq('email', user.email!)
+      .is('user_id', null)
+
+    // Cari workspace_member record untuk user ini
     const { data: member, error: memberErr } = await serviceClient
       .from('workspace_members')
       .select('id, role, display_name, workspace_id, workspaces(name)')
@@ -48,21 +55,15 @@ export async function POST() {
       return NextResponse.json({ error: 'Gagal membuat sesi.' }, { status: 500 })
     }
 
-    const workspaceName = (member as any).workspaces?.name || 'Workspace'
-    const displayName   = member.display_name || user.user_metadata?.full_name || null
+    // Sign out dari Supabase Auth — jalur anggota tidak pakai Supabase Auth
+    await supabase.auth.signOut()
 
-    // Simpan display_name dari Google ke workspace_members kalau belum ada
-    if (!member.display_name && user.user_metadata?.full_name) {
-      await serviceClient
-        .from('workspace_members')
-        .update({ display_name: user.user_metadata.full_name })
-        .eq('id', member.id)
-    }
+    const workspaceName = (member as any).workspaces?.name || 'Workspace'
 
     const response = NextResponse.json({
       ok: true,
       workspace_name: workspaceName,
-      display_name: displayName,
+      display_name: member.display_name || user.user_metadata?.full_name || null,
       role: member.role,
     })
 

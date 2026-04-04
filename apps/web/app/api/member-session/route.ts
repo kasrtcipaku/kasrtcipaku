@@ -1,5 +1,4 @@
 // app/api/member-session/route.ts
-// Dipanggil oleh dashboard layout untuk validasi member_session cookie
 import { createServiceClient } from '@/lib/supabase/server-service'
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
@@ -37,15 +36,16 @@ export async function GET() {
     return NextResponse.json({ valid: false }, { status: 401 })
   }
 
-  const member = (session as any).workspace_members
+  const member    = (session as any).workspace_members
   const workspace = member?.workspaces
 
   return NextResponse.json({
-    valid: true,
-    display_name: member?.display_name || null,
-    role: member?.role || 'member',
+    valid:          true,
+    display_name:   member?.display_name || null,
+    role:           member?.role || 'member',
     workspace_name: workspace?.name || null,
-    workspace_id: member?.workspace_id || null,
-    member_id: session.member_id,
+    workspace_id:   member?.workspace_id || null,
+    member_id:      session.member_id,
+    member_code:    member?.member_code || null,
   })
 }

@@ -60,15 +60,13 @@ export default function TagihanPage() {
 
   /* ── Load ── */
   useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) return
-      const { data: m } = await supabase
-        .from('workspace_members').select('workspace_id').eq('user_id', user.id).limit(1)
-      if (!m?.length) return
-      setWsId(m[0].workspace_id)
-      fetchBills(m[0].workspace_id)
-    })
+    ;(async () => {
+      const { getWorkspaceId } = await import('@/lib/get-workspace-id')
+      const { workspaceId } = await getWorkspaceId()
+      if (!workspaceId) return
+      setWsId(workspaceId)
+      fetchBills(workspaceId)
+    })()
   }, [])
 
   const fetchBills = async (wsId: string) => {

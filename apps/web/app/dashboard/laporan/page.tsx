@@ -36,18 +36,22 @@ export default function LaporanPage() {
   const [exportHover, setExportHover]     = useState(false)
 
   useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) return
-      const { data: m } = await supabase
-        .from('workspace_members')
-        .select('workspace_id, workspaces(name)')
-        .eq('user_id', user.id).limit(1)
-      if (!m?.length) return
-      setWorkspaceId(m[0].workspace_id)
-      setWorkspaceName((m[0] as any).workspaces?.name || 'Workspace')
-      fetchData(m[0].workspace_id, selectedMonth, selectedYear)
-    })
+    ;(async () => {
+      const { getWorkspaceId } = await import('@/lib/get-workspace-id')
+      const { workspaceId } = await getWorkspaceId()
+      if (!workspaceId) return
+
+      const supabase = createClient()
+      const { data: ws } = await supabase
+        .from('workspaces')
+        .select('name')
+        .eq('id', workspaceId)
+        .maybeSingle()
+
+      setWorkspaceId(workspaceId)
+      setWorkspaceName(ws?.name || 'Workspace')
+      fetchData(workspaceId, selectedMonth, selectedYear)
+    })()
   }, [])
 
   useEffect(() => {

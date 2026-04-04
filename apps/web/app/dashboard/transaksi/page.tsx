@@ -56,22 +56,15 @@ export default function TransaksiPage() {
 
   const fetchTransactions = useCallback(async () => {
     setLoading(true)
+    const { getWorkspaceId } = await import('@/lib/get-workspace-id')
+    const { workspaceId } = await getWorkspaceId()
+    if (!workspaceId) { setLoading(false); return }
+
     const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: memberships } = await supabase
-      .from('workspace_members')
-      .select('workspace_id')
-      .eq('user_id', user.id)
-      .limit(1)
-
-    if (!memberships?.length) return
-
     let query = supabase
       .from('transactions')
       .select('id, type, amount, description, date, categories(name, icon)')
-      .eq('workspace_id', memberships[0].workspace_id)
+      .eq('workspace_id', workspaceId)
       .order('date', { ascending: false })
 
     const range = getDateRange(filter)

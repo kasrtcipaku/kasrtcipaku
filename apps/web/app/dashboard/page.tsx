@@ -1,18 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import MemberDashboardPlaceholder from './_member-placeholder'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Kalau tidak ada Supabase Auth user, mungkin ini member session
-  // Biarkan layout.tsx yang handle — page ini hanya render konten
   if (!user) {
-    // Render placeholder — layout sudah validasi member_session
     return <MemberDashboardPlaceholder />
   }
 
-  // User login Google → hanya tampilkan workspace milik sendiri (owner)
   const { data: memberships } = await supabase
     .from('workspace_members')
     .select('workspace_id, role, workspaces(id, name, type)')
@@ -196,30 +193,6 @@ export default async function DashboardPage() {
             </a>
           ))}
         </div>
-      </div>
-    </div>
-  )
-}
-
-// Placeholder untuk member yang login pakai kode (tidak punya Supabase Auth)
-// Layout sudah validasi session — ini hanya tampilan sementara sebelum member-specific page dimuat
-function MemberDashboardPlaceholder() {
-  const ACCENT = '#7AAACE'
-  return (
-    <div style={{ maxWidth: 860, margin: '0 auto' }}>
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 600, color: '#1A1A18', letterSpacing: '-0.4px', margin: '3px 0 4px' }}>
-          Dashboard Anggota
-        </h2>
-        <p style={{ fontSize: 12, color: '#8B7E6E', margin: 0 }}>Kamu masuk sebagai anggota workspace.</p>
-      </div>
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8E0D4', padding: '24px', textAlign: 'center' }}>
-        <p style={{ fontSize: 14, color: '#8B7E6E', margin: '0 0 16px' }}>
-          Gunakan menu di sidebar untuk melihat transaksi, tagihan, dan laporan workspace kamu.
-        </p>
-        <a href="/dashboard/transaksi" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 18px', borderRadius: 8, fontSize: 13, fontWeight: 500, textDecoration: 'none', background: ACCENT, color: '#fff' }}>
-          Lihat Transaksi →
-        </a>
       </div>
     </div>
   )
